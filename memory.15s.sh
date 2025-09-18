@@ -1,13 +1,23 @@
 #!/bin/bash
 
 # <xbar.title>Free Memory</xbar.title>
-# <xbar.version>1.4</xbar.version>
+# <xbar.version>1.5</xbar.version>
 # <xbar.author>Gemini</xbar.author>
 # <xbar.author.github>gemini</xbar.author.github>
-# <xbar.desc>Shows the amount of free physical memory with conditional formatting and coloring using vm_stat.</xbar.desc>
+# <xbar.desc>Shows the amount of free physical memory. The color indicates the memory pressure.</xbar.desc>
 # <xbar.image>https://i.imgur.com/example.png</xbar.image>
 # <xbar.dependencies>bash, vm_stat, awk, sed, bc</xbar.dependencies>
 # <xbar.abouturl>https://github.com/matryer/xbar</xbar.abouturl>
+
+if [ "$1" = 'activity_monitor' ]; then
+    osascript << END
+    tell application "Activity Monitor"
+        reopen
+        activate
+    end tell
+END
+    exit 0
+fi
 
 # Get memory statistics from vm_stat
 vm_stat_output=$(vm_stat)
@@ -30,7 +40,6 @@ free_mem_mb=$(echo "scale=0; $free_mem_bytes / (1024 * 1024)" | bc)
 free_mem_gb=$(echo "scale=2; $free_mem_bytes / (1024 * 1024 * 1024)" | bc)
 
 output_text=""
-output_color=""
 
 # Conditional formatting for memory units
 if (( $(echo "$free_mem_gb >= .5" | bc -l) )); then
@@ -41,11 +50,14 @@ else
     output_text="${free_mem_mb}MB"
 fi
 
-# Conditional coloring based on free memory amount
-if (( $(echo "$free_mem_mb < 500" | bc -l) )); then
+pressure_level=$(sysctl -n kern.memorystatus_vm_pressure_level)
+output_color=""
+
+# Conditional coloring based on memory pressure level
+if [ "$pressure_level" -eq 4 ]; then
     output_color="#FF0000" # Red
-elif (( $(echo "$free_mem_mb < 1024" | bc -l) )); then # 1GB = 1024MB
-    output_color="#FFA500" # Orange
+elif [ "$pressure_level" -eq 2 ]; then
+    output_color="#FFFF00" # Yellow
 else
     output_color="#FFFFFF" # White
 fi
@@ -56,3 +68,6 @@ if [ -n "$output_color" ]; then
 else
     echo "$output_text | font=Monaco size=12"
 fi
+
+echo "---"
+echo "Open Activity Monitor | bash='$0' param1=activity_monitor terminal=false"

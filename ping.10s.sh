@@ -30,7 +30,7 @@ MENUFONT="font='SF Mono'"
 #size=10 font=UbuntuMono-Bold"
 FONT="SF Mono"
 MAX_PING=1000
-SITES=(8.8.8.8 1.1.1.1 10.0.0.80) 
+SITES=(8.8.8.8 1.1.1.1) #10.0.0.80 
 # space separated
 
 #grab ping times for all sites

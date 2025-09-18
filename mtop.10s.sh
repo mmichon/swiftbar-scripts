@@ -199,14 +199,14 @@ get_cpu_stats() {
             loadstr=${topdata[$i]}
         elif [ "$word" = CPU ]; then
             cpustr=${line[*]}
-            histdata+=("${line[2]/'%'}" "${line[4]/'%'}" "${line[6]/'%'}")
+            histdata+=("${line[2]/'%'} ${line[4]/'%'} ${line[6]/'%'}")
             idle_cpu=${line[6]:0:2} # e.g. 79.66%
             cpu=$((100 - $idle_cpu))
         elif [ "$word" = PID ]; then
             top5=("${topdata[@]:$i}")
             top_proc_line=${top5[1]}
-            top_proc=$(echo "${top_proc_line}" | awk '{$1=""; $NF=""; print $0}' | xargs)
-            top_proc_cpu=$(echo ${top_proc_line:22:5} | xargs)
+            top_proc_cpu=$(echo "$top_proc_line" | awk '{print $NF}')
+            top_proc=$(echo "$top_proc_line" | awk '{$1=""; $NF=""; print $0}' | xargs)
         fi
     done
 
@@ -242,11 +242,13 @@ render_graph() {
 get_cpu_stats
 
 if [[ "$top_proc" == *kernel_task* ]]; then
-    echo -n " $top_proc_cpu% $top_proc | font='SF Mono' size='12' color='#FF0000'"
+    second_proc_line=${top5[2]}
+    second_proc_cpu=$(echo "$second_proc_line" | awk '{print $NF}')
+    second_proc=$(echo "$second_proc_line" | awk '{$1=""; $NF=""; print $0}' | xargs)
+    echo -n " $second_proc_cpu% $second_proc | font='SF Mono' size='12' color='#FF0000'"
 else
     echo -n " $top_proc_cpu% $top_proc | font='SF Mono' size='12'"
 fi
-#echo -n " $top_proc_cpu% $top_proc | font='SF Mono' size='12'"
 
 make_bmp_header $bmp_ver
 add_row 2 "$border"
@@ -264,12 +266,8 @@ echo "---"
 echo "Open Activity Monitor | bash='$0' param1=activity_monitor terminal=false"
 
 for line in "${top5[@]}"; do
-    if [[ $line == *kernel_task* ]]; then
-        echo "$line | font=Menlo color=#FF0000"
-    else
-        echo "$line | font=Menlo color=#000000"
-    fi
+    echo "$line | font=Menlo"
 done
 IFS=$OLDIFS
 echo "---"
-echo "Open Activity Monitor | bash='$0' param1=activity_monitor terminal=false"
+echo "Refresh... | refresh='true'"
