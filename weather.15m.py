@@ -28,8 +28,8 @@ def get_wx():
         return False
 
     try:
-        daily_wx = json.load(urlopen(f'http://api.openweathermap.org/data/2.5/forecast/daily?q={location_name}'
-                                     f'&units={units}&lang={lang}&appid={api_key}&v={str(randint(0, 100))})))
+        daily_wx = json.load(urlopen(f'http://api.openweathermap.org/data/2.5/forecast/daily?q={location_name}' \
+                                     f'&units={units}&lang={lang}&appid={api_key}&v={str(randint(0, 100))}'))
         location = str(daily_wx['city']['id'])
         wx = json.load(
             urlopen(
@@ -116,7 +116,7 @@ def render_wx():
                                  f"{daily_forecast['datetime'].month}/{daily_forecast['datetime'].day} " \
                                  f"{emoji.emojize(emoji_dict[daily_forecast['id']])} " \
                                  f"{daily_forecast['max']}{weather_data['unit']}/" \
-                                 f"{daily_forecast['min']}{weather_data['unit']}"} | font=Menlo\n"
+                                 f"{daily_forecast['min']}{weather_data['unit']} | font=Menlo\n"
     return f'{emoji_t}{tridash}Condition: {" ".join(condi)}{daily_forecast_encoded}'
 
 
