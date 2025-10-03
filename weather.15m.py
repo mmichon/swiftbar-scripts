@@ -1,28 +1,60 @@
 #!/usr/bin/env python3
 
-# <xbar.title>Weather - OpenWeatherMap</xbar.title>
-# <xbar.version>v1.3</xbar.version>
-# <xbar.author>Daniel Seripap</xbar.author>
-# <xbar.author.github>seripap</xbar.author.github>
-# <xbar.desc>Grabs simple weather information from openweathermap. Needs configuration for location and API key.</xbar.desc>
-# <xbar.image>https://poolis.github.io/bitbar-plugins/open-weather-preview.png</xbar.image>
-# <xbar.dependencies>python,emoji</xbar.dependencies>
-# <xbar.var>string(VAR_LOCATION="San Francisco, US"): Your location in the format: city name, country code.</xbar.var>
+# <xbar.title>Weather</xbar.title>
+# <xbar.version>v1.4</xbar.version>
+# <xbar.author>Daniel Seripap, Matt Michon</xbar.author>
+# <xbar.author.github>dseripap,mmichon</xbar.author.github>
+# <xbar.desc>Grabs simple weather information from wttr.in.</xbar.desc>
+# <xbar.image>https://i.imgur.com/i1naC4j.png</xbar.image>
+# <xbar.dependencies>python,emoji,requests</xbar.dependencies>
+# <xbar.var>select(VAR_UNITS, options=["imperial", "metric", "kelvin"], default="imperial"): Your preferred units.</xbar.var>
+# <xbar.var>string(VAR_LOCATION, default=""): Your location. If empty, it will be autodetected. You can use a city name, zip code, airport code, landmark, or GPS coordinates (e.g. 48.8582,2.2945).</xbar.var>
 
 import emoji
 import json
+import requests
 from urllib.request import urlopen
 from urllib.error import URLError
-from random import randint
+
 import datetime
 import os
 
-location_name = "{0}".format(os.getenv('VAR_LOCATION')).replace(" ", "%20")
+units = os.getenv('VAR_UNITS', 'imperial')  # imperial, metric, or kelvin
+try:
+    from CoreLocation import CLLocationManager, kCLAuthorizationStatusAuthorized, kCLLocationAccuracyKilometer
+    import time
+except ImportError:
+    CoreLocation = None
 
-units = 'imperial'  # kelvin, metric, imperial
+def get_corelocation():
+    if CoreLocation is None:
+        return None
+
+    manager = CLLocationManager.alloc().init()
+    if manager.authorizationStatus() != kCLAuthorizationStatusAuthorized:
+        return None
+    manager.desiredAccuracy = kCLLocationAccuracyKilometer
+    manager.startUpdatingLocation()
+    while manager.location() is None:
+        time.sleep(0.1)
+    location = manager.location().coordinate()
+    manager.stopUpdatingLocation()
+    return location.latitude, location.longitude
+
 def get_wx():
+    location_name = os.getenv('VAR_LOCATION')
+    if not location_name:
+        location = get_corelocation()
+        if location:
+            location_name = "{},{}".format(location[0], location[1])
+        else:
+            try:
+                geo_info = requests.get('https://ipinfo.io/json').json()
+                location_name = geo_info['city']
+            except (requests.exceptions.RequestException, KeyError):
+                return False
     try:
-        wx = json.load(urlopen('https://wttr.in/{0}?format=j1'.format(location_name)))
+        wx = json.load(urlopen('https://wttr.in/{0}?format=j1'.format(location_name.replace(" ", "%20"))))
     except URLError:
         return False
 
