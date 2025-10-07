@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 # <xbar.title>Weather - wttr.in</xbar.title>
 # <xbar.version>v2.0</xbar.version>
 # <xbar.author>Daniel Seripap</xbar.author>
@@ -16,6 +15,7 @@ from random import randint
 import datetime
 import os
 from urllib.parse import quote
+import time
 
 units = 'imperial'  # 'metric' for Celsius, 'imperial' for Fahrenheit
 lang = 'en'
@@ -35,12 +35,31 @@ def get_wx():
         url = f'http://wttr.in/{city_encoded}?format=j1&lang={lang}'
     else:
         url = f'http://wttr.in/?format=j1&lang={lang}'
-    try:
-        response = urlopen(url)
-        wx = json.load(response)
-    except (URLError, json.JSONDecodeError):
-        return False
 
+    retries = 3
+    backoff_factor = 2
+    for i in range(retries):
+        try:
+            response = urlopen(url)
+            if response.status == 200:
+                wx = json.load(response)
+                break
+            elif response.status == 429:
+                if i < retries - 1:
+                    sleep_time = backoff_factor ** i + randint(0, 1000) / 1000
+                    time.sleep(sleep_time)
+                else:
+                    return False
+            else:
+                return False
+        except (URLError, json.JSONDecodeError):
+            if i < retries - 1:
+                sleep_time = backoff_factor ** i + randint(0, 1000) / 1000
+                time.sleep(sleep_time)
+            else:
+                return False
+    else:
+        return False
     if units == 'metric':
         hourly_temp_unit = 'tempC'
         current_temp_unit = 'temp_C'
@@ -90,7 +109,6 @@ def get_wx():
         return False
 
     return weather_data
-
 
 def get_gradient_color(temperature):
     temp = int(temperature)
@@ -178,6 +196,5 @@ def render_wx():
                                  f"{daily_forecast['max']}{weather_data['unit']}/" \
                                  f"{daily_forecast['min']}{weather_data['unit']} | font=Menlo\n"
     return f'{emoji_t}{tridash}Condition: {" ".join(condi)}{daily_forecast_encoded}'
-
 
 print(render_wx())
