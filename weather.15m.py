@@ -188,7 +188,7 @@ def render_wx():
     color_code = get_gradient_color(weather_data['temperature'])
     emoji_t = f'{emojiweather}{weather_data["temperature"]}{weather_data["unit"]} | color={color_code}'
     condi = [x.capitalize() for x in weather_data['condition'].split(' ')]
-    daily_forecast_encoded = '\nForecast:\n'
+    daily_forecast_encoded = f'\nForecast for {weather_data["city"]}:\n'
     for daily_forecast in weather_data['daily_forecast']:
         daily_forecast_encoded = f"{daily_forecast_encoded}{daily_forecast['datetime'].strftime('%a')} " \
                                  f"{daily_forecast['datetime'].month}/{daily_forecast['datetime'].day} " \
