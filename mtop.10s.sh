@@ -34,7 +34,7 @@ hex_to_bgra() {
     echo "$b $g $r $a"
 }
 
-echo "Script started" > /Users/mmichon/Library/Application\ Support/xbar/plugins/mtop.debug
+
 
 if [ "$1" = 'activity_monitor' ]; then
     osascript << END
@@ -187,7 +187,7 @@ output_bmp() {
 get_cpu_stats() {
     local IFS=$'\n'
     topdata=($(top -F -R -l2 -o cpu -n 5 -s 2 -stats pid,command,cpu))
-    echo "topdata: ${topdata[@]}" >> /Users/mmichon/Library/Application\ Support/xbar/plugins/mtop.debug
+    
     nlines=${#topdata[@]}
     histdata=($(tail -$((width - 1)) "$HISTORY_FILE"))
 
@@ -200,8 +200,8 @@ get_cpu_stats() {
         elif [ "$word" = CPU ]; then
             cpustr=${line[*]}
             histdata+=("${line[2]/'%'} ${line[4]/'%'} ${line[6]/'%'}")
-            idle_cpu=${line[6]:0:2} # e.g. 79.66%
-            cpu=$((100 - $idle_cpu))
+            idle_cpu=$(printf "%.0f" ${line[6]/\%*})
+
         elif [ "$word" = PID ]; then
             top5=("${topdata[@]:$i}")
             top_proc_line=${top5[1]}
@@ -245,9 +245,9 @@ if [[ "$top_proc" == *kernel_task* ]]; then
     second_proc_line=${top5[2]}
     second_proc_cpu=$(echo "$second_proc_line" | awk '{print $NF}')
     second_proc=$(echo "$second_proc_line" | awk '{$1=""; $NF=""; print $0}' | xargs)
-    echo -n " $second_proc_cpu% $second_proc | font='SF Mono' size='12' color='#FF0000'"
+    echo -n " $second_proc_cpu% ${second_proc:0:6} | font='SF Mono' size='12' color='#FF0000'"
 else
-    echo -n " $top_proc_cpu% $top_proc | font='SF Mono' size='12'"
+    echo -n " $top_proc_cpu% ${top_proc:0:6} | font='SF Mono' size='12'"
 fi
 
 make_bmp_header $bmp_ver
