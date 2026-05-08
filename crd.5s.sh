@@ -12,6 +12,7 @@ PID_FILE="/tmp/.crd-caffeinate-pid"
 BRIGHTNESS_FILE="/tmp/.crd-original-brightness"
 FLAG_DIMMED="/tmp/.crd-brightness-dimmed"
 BRIGHTNESS_BIN="/usr/local/bin/brightness"
+DEFAULT_BRIGHTNESS=0.8
 
 # --- Helpers ---
 
@@ -61,7 +62,7 @@ disable_crd_mode() {
         if [[ -n "$saved" ]]; then
             "$BRIGHTNESS_BIN" "$saved" 2>/dev/null
         else
-            "$BRIGHTNESS_BIN" 1 2>/dev/null
+            "$BRIGHTNESS_BIN" "$DEFAULT_BRIGHTNESS" 2>/dev/null
         fi
     fi
     rm -f "$BRIGHTNESS_FILE" "$FLAG_DIMMED"
