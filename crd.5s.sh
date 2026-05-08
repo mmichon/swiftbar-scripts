@@ -11,13 +11,37 @@ FLAG_AUTO="/tmp/.crd-auto-managed"
 PID_FILE="/tmp/.crd-caffeinate-pid"
 BRIGHTNESS_FILE="/tmp/.crd-original-brightness"
 FLAG_DIMMED="/tmp/.crd-brightness-dimmed"
-BRIGHTNESS_BIN="/usr/local/bin/brightness"
 DEFAULT_BRIGHTNESS=0.8
 
 # --- Helpers ---
 
 brightness_available() {
-    [[ -x "$BRIGHTNESS_BIN" ]]
+    python3 -c "
+import ctypes
+ctypes.cdll.LoadLibrary('/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices')
+" 2>/dev/null
+}
+
+get_brightness_value() {
+    python3 -c "
+import ctypes
+lib = ctypes.cdll.LoadLibrary('/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices')
+lib.DisplayServicesGetBrightness.restype = ctypes.c_int
+lib.DisplayServicesGetBrightness.argtypes = [ctypes.c_uint32, ctypes.POINTER(ctypes.c_float)]
+b = ctypes.c_float(0.0)
+lib.DisplayServicesGetBrightness(1, ctypes.byref(b))
+print(b.value)
+" 2>/dev/null
+}
+
+set_brightness_value() {
+    python3 -c "
+import ctypes
+lib = ctypes.cdll.LoadLibrary('/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices')
+lib.DisplayServicesSetBrightness.restype = ctypes.c_int
+lib.DisplayServicesSetBrightness.argtypes = [ctypes.c_uint32, ctypes.c_float]
+lib.DisplayServicesSetBrightness(1, ctypes.c_float($1))
+" 2>/dev/null
 }
 
 is_crd_session_active() {
@@ -36,13 +60,16 @@ enable_crd_mode() {
     # Save and dim brightness
     if brightness_available; then
         local current
-        current=$("$BRIGHTNESS_BIN" -l 2>/dev/null | grep -oE 'brightness [0-9.]+' | grep -oE '[0-9.]+' | head -1)
-        [[ -n "$current" ]] && echo "$current" > "$BRIGHTNESS_FILE"
-        # brightness exits 0 even on failure; only mark dimmed if we could read current value
+        current=$(get_brightness_value)
+
         if [[ -n "$current" ]]; then
-            "$BRIGHTNESS_BIN" 0 2>/dev/null
-            touch "$FLAG_DIMMED"
+            echo "$current" > "$BRIGHTNESS_FILE"
+        else
+            echo "$DEFAULT_BRIGHTNESS" > "$BRIGHTNESS_FILE"
         fi
+
+        set_brightness_value 0
+        touch "$FLAG_DIMMED"
     fi
 
     # Start caffeinate -d if not already running
@@ -60,9 +87,9 @@ disable_crd_mode() {
         local saved
         saved=$(cat "$BRIGHTNESS_FILE" 2>/dev/null)
         if [[ -n "$saved" ]]; then
-            "$BRIGHTNESS_BIN" "$saved" 2>/dev/null
+            set_brightness_value "$saved"
         else
-            "$BRIGHTNESS_BIN" "$DEFAULT_BRIGHTNESS" 2>/dev/null
+            set_brightness_value "$DEFAULT_BRIGHTNESS"
         fi
     fi
     rm -f "$BRIGHTNESS_FILE" "$FLAG_DIMMED"
@@ -155,6 +182,5 @@ if brightness_available; then
     fi
 else
     echo "---"
-    echo "⚠ brightness not found | color=#FF0000"
-    echo "Install: brew install brightness | color=#888888"
+    echo "⚠ brightness control unavailable | color=#FF0000"
 fi
