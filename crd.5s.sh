@@ -47,7 +47,14 @@ lib.DisplayServicesSetBrightness(1, ctypes.c_float($1))
 is_crd_session_active() {
     # CRD runs as root; pgrep/lsof can't inspect it without hanging.
     # netstat -anv shows process names in its output and is fast (~25ms).
-    netstat -anv tcp 2>/dev/null | grep -i "remoting_me2me_h" | grep -q "ESTABLISHED"
+    # The daemon keeps 1-2 ESTABLISHED keep-alive connections to Google relay
+    # servers even when idle. An active session adds data-channel connections,
+    # pushing the total to 3+.
+    local count
+    count=$(netstat -anv tcp 2>/dev/null \
+        | grep -i "remoting_me2me_h" \
+        | grep -c "ESTABLISHED")
+    [[ "$count" -ge 3 ]]
 }
 
 caffeinate_running() {
