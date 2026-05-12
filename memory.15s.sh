@@ -59,7 +59,7 @@ if [ "$pressure_level" -eq 4 ]; then
 elif [ "$pressure_level" -eq 2 ]; then
     output_color="#FFFF00" # Yellow
 else
-    output_color="#FFFFFF" # White
+    output_color="" # System default (black in light mode, white in dark mode)
 fi
 
 # Construct the final output string for BitBar
