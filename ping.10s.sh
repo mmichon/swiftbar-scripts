@@ -78,8 +78,7 @@ else
   MSG="$AVG"'±'"${SD}ms"
 fi
 
-DARK_MODE=$(defaults read -g AppleInterfaceStyle 2>/dev/null)
-DEFAULT_COLOR=$( [ "$DARK_MODE" = "Dark" ] && echo "#FFFFFF" || echo "#000000" )
+DEFAULT_COLOR=$( [ "$XBAROSDark" = "true" ] && echo "#FFFFFF" || echo "#000000" )
 
 function colorize {
   latency=$1
