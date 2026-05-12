@@ -78,10 +78,13 @@ else
   MSG="$AVG"'±'"${SD}ms"
 fi
 
+DARK_MODE=$(defaults read -g AppleInterfaceStyle 2>/dev/null)
+DEFAULT_COLOR=$( [ "$DARK_MODE" = "Dark" ] && echo "#FFFFFF" || echo "#000000" )
+
 function colorize {
   latency=$1
   if [ "$latency" -le 15 ]; then
-    echo "#FFFFFF"
+    echo "$DEFAULT_COLOR"
   elif [ "$latency" -gt 500 ]; then
     echo "#FF0000"
   else

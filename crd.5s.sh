@@ -47,14 +47,14 @@ lib.DisplayServicesSetBrightness(1, ctypes.c_float($1))
 is_crd_session_active() {
     # CRD runs as root; pgrep/lsof can't inspect it without hanging.
     # netstat -anv shows process names in its output and is fast (~25ms).
-    # The daemon keeps 1-2 ESTABLISHED keep-alive connections to Google relay
-    # servers even when idle. An active session adds data-channel connections,
-    # pushing the total to 3+.
+    # Active sessions use WebRTC over UDP as the primary data channel, so
+    # filtering for TCP ESTABLISHED misses them. Count all sockets (TCP + UDP
+    # + Unix domain) for the process instead. Idle baseline is ~4; an active
+    # session pushes this to 8+. Threshold of 6 gives comfortable headroom.
     local count
-    count=$(netstat -anv tcp 2>/dev/null \
-        | grep -i "remoting_me2me_h" \
-        | grep -c "ESTABLISHED")
-    [[ "$count" -ge 3 ]]
+    count=$(netstat -anv 2>/dev/null \
+        | grep -ci "remoting_me2me_h")
+    [[ "$count" -ge 6 ]]
 }
 
 caffeinate_running() {
@@ -149,11 +149,11 @@ fi
 # --- Menu bar title ---
 
 if $MODE_ON && $CRD_ACTIVE; then
-    echo "| sfimage=rectangle.on.rectangle.fill color=#FF6600"
+    echo "| sfimage=cursorarrow.rays color=#FF6600"
 elif $MODE_ON; then
-    echo "| sfimage=rectangle.on.rectangle color=#888888"
+    echo "| sfimage=cursorarrow color=#888888"
 else
-    echo "| sfimage=rectangle.on.rectangle color=#444444"
+    echo "| sfimage=cursorarrow color=#444444"
 fi
 
 echo "---"
