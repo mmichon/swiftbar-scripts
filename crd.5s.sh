@@ -45,16 +45,13 @@ lib.DisplayServicesSetBrightness(1, ctypes.c_float($1))
 }
 
 is_crd_session_active() {
-    # CRD runs as root; pgrep/lsof can't inspect it without hanging.
-    # netstat -anv shows process names in its output and is fast (~25ms).
-    # Active sessions use WebRTC over UDP as the primary data channel, so
-    # filtering for TCP ESTABLISHED misses them. Count all sockets (TCP + UDP
-    # + Unix domain) for the process instead. Idle baseline is ~4; an active
-    # session pushes this to 8+. Threshold of 6 gives comfortable headroom.
-    local count
-    count=$(netstat -anv 2>/dev/null \
-        | grep -ci "remoting_me2me_h")
-    [[ "$count" -ge 6 ]]
+    # An active CRD session opens WebRTC data channels over UDP to Google relay
+    # servers. lsof shows these as connected UDP sockets with a "->remote" addr.
+    # The idle daemon uses only TCP keep-alives — it has no connected UDP sockets.
+    # TCP sockets linger in CLOSE_WAIT/TIME_WAIT after wake (causing false
+    # positives with netstat counting), but connected UDP state clears immediately.
+    timeout 2 lsof -i UDP -P -n 2>/dev/null \
+        | grep -qi "remoting_.*->"
 }
 
 caffeinate_running() {
