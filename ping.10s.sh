@@ -78,23 +78,21 @@ else
   MSG="$AVG"'±'"${SD}ms"
 fi
 
-DEFAULT_COLOR=$( [ "$XBAROSDark" = "true" ] && echo "#FFFFFF" || echo "#000000" )
-
 function colorize {
   latency=$1
-  if [ "$latency" -le 15 ]; then
-    echo "$DEFAULT_COLOR"
+  if [ "$latency" -le 20 ]; then
+    echo "#ffffff"
   elif [ "$latency" -gt 500 ]; then
     echo "#FF0000"
   else
-    if [ "$latency" -le 150 ]; then
-      # 15ms to 150ms: Green to Yellow gradient
-      percentage=$(awk -v lat="$latency" 'BEGIN { print (lat - 15) / 135 }')
+    if [ "$latency" -le 160 ]; then
+      # 20ms to 160ms: Green to Yellow gradient
+      percentage=$(awk -v lat="$latency" 'BEGIN { print (lat - 20) / 140 }')
       red=$(awk -v p="$percentage" 'BEGIN { printf "%d", p * 255 }')
       printf "#%02x%02x%02x\n" "$red" 255 0
     else
-      # 150ms to 500ms: Yellow to Red gradient
-      percentage=$(awk -v lat="$latency" 'BEGIN { print (lat - 150) / 350 }')
+      # 160ms to 500ms: Yellow to Red gradient
+      percentage=$(awk -v lat="$latency" 'BEGIN { print (lat - 160) / 340 }')
       green=$(awk -v p="$percentage" 'BEGIN { printf "%d", 255 - (p * 255) }')
       printf "#%02x%02x%02x\n" 255 "$green" 0
     fi
