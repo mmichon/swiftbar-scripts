@@ -12,6 +12,34 @@ PID_FILE="/tmp/.crd-caffeinate-pid"
 BRIGHTNESS_FILE="/tmp/.crd-original-brightness"
 FLAG_DIMMED="/tmp/.crd-brightness-dimmed"
 DEFAULT_BRIGHTNESS=0.8
+LOG_FILE="$HOME/Library/Logs/crd-plugin.log"
+LOG_MAX_LINES=2000
+
+# --- Logging ---
+
+crd_log() {
+    local level="$1"; shift
+    printf '%s [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$*" >> "$LOG_FILE"
+    # Trim log if too long
+    if (( $(wc -l < "$LOG_FILE") > LOG_MAX_LINES )); then
+        tail -n "$LOG_MAX_LINES" "$LOG_FILE" > "${LOG_FILE}.tmp" && mv "${LOG_FILE}.tmp" "$LOG_FILE"
+    fi
+}
+
+log_detection_state() {
+    local udp_unbound tcp_established total_sockets seconds_since_wake last_wake
+    udp_unbound=$(netstat -anv 2>/dev/null | grep "remoting_me2me_h" | grep -c "^udp4.*\*\.\*")
+    tcp_established=$(netstat -anv 2>/dev/null | grep "remoting_me2me_h" | grep -c "ESTABLISHED")
+    total_sockets=$(netstat -anv 2>/dev/null | grep -c "remoting_me2me_h")
+    last_wake=$(pmset -g log 2>/dev/null | grep -E "^[0-9]{4}.*Wake " | tail -1 | awk '{print $1, $2}')
+    if [[ -n "$last_wake" ]]; then
+        wake_epoch=$(date -jf "%Y-%m-%d %H:%M:%S" "$last_wake" +%s 2>/dev/null || echo 0)
+        seconds_since_wake=$(( $(date +%s) - wake_epoch ))
+    else
+        seconds_since_wake="?"
+    fi
+    crd_log "$1" "udp_unbound=$udp_unbound tcp_established=$tcp_established total=$total_sockets wake_ago=${seconds_since_wake}s mode_on=$MODE_ON crd_active=$CRD_ACTIVE auto=$AUTO_MANAGED"
+}
 
 # --- Helpers ---
 
@@ -45,13 +73,16 @@ lib.DisplayServicesSetBrightness(1, ctypes.c_float($1))
 }
 
 is_crd_session_active() {
-    # An active CRD session opens WebRTC data channels over UDP to Google relay
-    # servers. lsof shows these as connected UDP sockets with a "->remote" addr.
-    # The idle daemon uses only TCP keep-alives — it has no connected UDP sockets.
-    # TCP sockets linger in CLOSE_WAIT/TIME_WAIT after wake (causing false
-    # positives with netstat counting), but connected UDP state clears immediately.
-    timeout 2 lsof -i UDP -P -n 2>/dev/null \
-        | grep -qi "remoting_.*->"
+    # Unbound UDP sockets (udp4 with *.*  foreign addr) are WebRTC ICE candidate
+    # sockets, created in batches of 3+ only during an active session. The idle
+    # daemon has none — it keeps only a connected UDP and a persistent TCP relay.
+    # UDP state clears immediately on disconnect, so these never linger after
+    # wake-from-sleep the way TCP CLOSE_WAIT/TIME_WAIT sockets do.
+    local udp_unbound
+    udp_unbound=$(netstat -anv 2>/dev/null \
+        | grep "remoting_me2me_h" \
+        | grep -c "^udp4.*\*\.\*")
+    [[ "$udp_unbound" -ge 2 ]]
 }
 
 caffeinate_running() {
@@ -111,10 +142,14 @@ disable_crd_mode() {
 
 case "$1" in
     enable)
+        MODE_ON=false; CRD_ACTIVE=false; AUTO_MANAGED=false
+        log_detection_state "MANUAL-ENABLE"
         enable_crd_mode
         exit 0
         ;;
     disable)
+        MODE_ON=true; CRD_ACTIVE=false; AUTO_MANAGED=false
+        log_detection_state "MANUAL-DISABLE"
         disable_crd_mode
         exit 0
         ;;
@@ -132,12 +167,20 @@ AUTO_MANAGED=false
 [[ -f "$FLAG_AUTO" ]] && AUTO_MANAGED=true
 
 if $CRD_ACTIVE && ! $MODE_ON; then
+    log_detection_state "AUTO-ENABLE"
     touch "$FLAG_AUTO"
     enable_crd_mode
     MODE_ON=true
 elif ! $CRD_ACTIVE && $MODE_ON && $AUTO_MANAGED; then
+    log_detection_state "AUTO-DISABLE"
     disable_crd_mode
     MODE_ON=false
+else
+    # Log every tick while mode is on, or whenever CRD_ACTIVE fires, to capture
+    # the full socket picture around false positives.
+    if $MODE_ON || $CRD_ACTIVE; then
+        log_detection_state "TICK"
+    fi
 fi
 
 # Refresh state after potential auto-changes
