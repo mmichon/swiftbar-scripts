@@ -81,7 +81,7 @@ fi
 function colorize {
   latency=$1
   if [ "$latency" -le 20 ]; then
-    echo "#ffffff"
+    echo ""
   elif [ "$latency" -gt 500 ]; then
     echo "#FF0000"
   else
