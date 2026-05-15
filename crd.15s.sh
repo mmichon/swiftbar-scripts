@@ -30,8 +30,8 @@ log_detection_state() {
     local udp_count stun_established last_wake
     local crd_pid
     crd_pid=$(pgrep -x remoting_me2me_host 2>/dev/null | head -1)
-    udp_count=$(lsof -a -p "$crd_pid" -i UDP 2>/dev/null | grep -c "UDP" 2>/dev/null || echo 0)
-    stun_established=$(lsof -a -p "$crd_pid" -i TCP 2>/dev/null | grep -c "nat-stun-port.*ESTABLISHED" 2>/dev/null || echo 0)
+    udp_count=$(lsof -a -p "$crd_pid" -i UDP 2>/dev/null | grep -c "UDP")
+    stun_established=$(lsof -a -p "$crd_pid" -i TCP 2>/dev/null | grep -c "nat-stun-port.*ESTABLISHED")
     last_wake=$(pmset -g log 2>/dev/null | grep -E "^[0-9]{4}.*Wake " | tail -1 | awk '{print $1, $2}')
     if [[ -n "$last_wake" ]]; then
         wake_epoch=$(date -jf "%Y-%m-%d %H:%M:%S" "$last_wake" +%s 2>/dev/null || echo 0)
