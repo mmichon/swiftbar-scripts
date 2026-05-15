@@ -27,10 +27,11 @@ crd_log() {
 }
 
 log_detection_state() {
-    local udp_unbound tcp_established total_sockets seconds_since_wake last_wake
-    udp_unbound=$(netstat -anv 2>/dev/null | grep "remoting_me2me_h" | grep -c "^udp4.*\*\.\*")
-    tcp_established=$(netstat -anv 2>/dev/null | grep "remoting_me2me_h" | grep -c "ESTABLISHED")
-    total_sockets=$(netstat -anv 2>/dev/null | grep -c "remoting_me2me_h")
+    local udp_count stun_established last_wake
+    local crd_pid
+    crd_pid=$(pgrep -x remoting_me2me_host 2>/dev/null | head -1)
+    udp_count=$(lsof -a -p "$crd_pid" -i UDP 2>/dev/null | grep -c "UDP" 2>/dev/null || echo 0)
+    stun_established=$(lsof -a -p "$crd_pid" -i TCP 2>/dev/null | grep -c "nat-stun-port.*ESTABLISHED" 2>/dev/null || echo 0)
     last_wake=$(pmset -g log 2>/dev/null | grep -E "^[0-9]{4}.*Wake " | tail -1 | awk '{print $1, $2}')
     if [[ -n "$last_wake" ]]; then
         wake_epoch=$(date -jf "%Y-%m-%d %H:%M:%S" "$last_wake" +%s 2>/dev/null || echo 0)
@@ -38,7 +39,7 @@ log_detection_state() {
     else
         seconds_since_wake="?"
     fi
-    crd_log "$1" "udp_unbound=$udp_unbound tcp_established=$tcp_established total=$total_sockets wake_ago=${seconds_since_wake}s mode_on=$MODE_ON crd_active=$CRD_ACTIVE auto=$AUTO_MANAGED"
+    crd_log "$1" "udp_count=$udp_count stun_established=$stun_established wake_ago=${seconds_since_wake}s mode_on=$MODE_ON crd_active=$CRD_ACTIVE auto=$AUTO_MANAGED"
 }
 
 # --- Helpers ---
@@ -73,16 +74,22 @@ lib.DisplayServicesSetBrightness(1, ctypes.c_float($1))
 }
 
 is_crd_session_active() {
-    # Unbound UDP sockets (udp4 with *.*  foreign addr) are WebRTC ICE candidate
-    # sockets, created in batches of 3+ only during an active session. The idle
-    # daemon has none — it keeps only a connected UDP and a persistent TCP relay.
-    # UDP state clears immediately on disconnect, so these never linger after
-    # wake-from-sleep the way TCP CLOSE_WAIT/TIME_WAIT sockets do.
-    local udp_unbound crd_pid
+    # Primary signal: an ESTABLISHED TCP connection to nat-stun-port (3478) is
+    # the WebRTC STUN/TURN relay and only exists during an active session.
+    # Fallback: 4+ UDP sockets (WebRTC ICE candidates) bound to the CRD process.
+    # We do NOT look for wildcard (*:) UDP sockets — during a live session the
+    # sockets are bound to the local LAN IP, not to *.
+    local crd_pid
     crd_pid=$(pgrep -x remoting_me2me_host 2>/dev/null | head -1)
-    [[ -z "$crd_pid" ]] && { udp_unbound=0; return 1; }
-    udp_unbound=$(lsof -a -p "$crd_pid" -i UDP 2>/dev/null | grep -c "\*:")
-    [[ "$udp_unbound" -ge 2 ]]
+    [[ -z "$crd_pid" ]] && return 1
+
+    # Primary: STUN/TURN relay TCP connection (only present during active WebRTC)
+    lsof -a -p "$crd_pid" -i TCP 2>/dev/null | grep -q "nat-stun-port.*ESTABLISHED" && return 0
+
+    # Fallback: 4+ UDP sockets (ICE candidates + QUIC relay)
+    local udp_count
+    udp_count=$(lsof -a -p "$crd_pid" -i UDP 2>/dev/null | grep -c "UDP")
+    [[ "$udp_count" -ge 4 ]]
 }
 
 caffeinate_running() {
@@ -200,9 +207,9 @@ echo "---"
 
 # Toggle action
 if $MODE_ON; then
-    echo "Disable CRD Mode | bash=$SCRIPT param1=disable terminal=false refresh=true"
+    echo "Disable CRD Mode | bash=\"$SCRIPT\" param1=disable terminal=false refresh=true"
 else
-    echo "Enable CRD Mode | bash=$SCRIPT param1=enable terminal=false refresh=true"
+    echo "Enable CRD Mode | bash=\"$SCRIPT\" param1=enable terminal=false refresh=true"
 fi
 
 echo "---"
