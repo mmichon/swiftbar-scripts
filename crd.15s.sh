@@ -27,19 +27,10 @@ crd_log() {
 }
 
 log_detection_state() {
-    local udp_count stun_established last_wake
-    local crd_pid
-    crd_pid=$(pgrep -x remoting_me2me_host 2>/dev/null | head -1)
-    udp_count=$(lsof -a -p "$crd_pid" -i UDP 2>/dev/null | grep -c "UDP")
-    stun_established=$(lsof -a -p "$crd_pid" -i TCP 2>/dev/null | grep -c "nat-stun-port.*ESTABLISHED")
-    last_wake=$(pmset -g log 2>/dev/null | grep -E "^[0-9]{4}.*Wake " | tail -1 | awk '{print $1, $2}')
-    if [[ -n "$last_wake" ]]; then
-        wake_epoch=$(date -jf "%Y-%m-%d %H:%M:%S" "$last_wake" +%s 2>/dev/null || echo 0)
-        seconds_since_wake=$(( $(date +%s) - wake_epoch ))
-    else
-        seconds_since_wake="?"
-    fi
-    crd_log "$1" "udp_count=$udp_count stun_established=$stun_established wake_ago=${seconds_since_wake}s mode_on=$MODE_ON crd_active=$CRD_ACTIVE auto=$AUTO_MANAGED"
+    local broker_pid broker_children
+    broker_pid=$(pgrep -x remoting_agent_process_broker 2>/dev/null | head -1)
+    broker_children=$(ps -eo ppid= | grep -c "^ *${broker_pid}$" 2>/dev/null || echo 0)
+    crd_log "$1" "broker_pid=$broker_pid broker_children=$broker_children mode_on=$MODE_ON crd_active=$CRD_ACTIVE auto=$AUTO_MANAGED"
 }
 
 # --- Helpers ---
@@ -74,22 +65,13 @@ lib.DisplayServicesSetBrightness(1, ctypes.c_float($1))
 }
 
 is_crd_session_active() {
-    # Primary signal: an ESTABLISHED TCP connection to nat-stun-port (3478) is
-    # the WebRTC STUN/TURN relay and only exists during an active session.
-    # Fallback: 4+ UDP sockets (WebRTC ICE candidates) bound to the CRD process.
-    # We do NOT look for wildcard (*:) UDP sockets — during a live session the
-    # sockets are bound to the local LAN IP, not to *.
-    local crd_pid
-    crd_pid=$(pgrep -x remoting_me2me_host 2>/dev/null | head -1)
-    [[ -z "$crd_pid" ]] && return 1
-
-    # Primary: STUN/TURN relay TCP connection (only present during active WebRTC)
-    lsof -a -p "$crd_pid" -i TCP 2>/dev/null | grep -q "nat-stun-port.*ESTABLISHED" && return 0
-
-    # Fallback: 4+ UDP sockets (ICE candidates + QUIC relay)
-    local udp_count
-    udp_count=$(lsof -a -p "$crd_pid" -i UDP 2>/dev/null | grep -c "UDP")
-    [[ "$udp_count" -ge 4 ]]
+    # When a CRD session connects, remoting_agent_process_broker spawns a
+    # dedicated child process to handle it. At idle the broker has no children.
+    # We check via `ps` (not lsof/pgrep -P) to avoid hangs on root processes.
+    local broker_pid
+    broker_pid=$(pgrep -x remoting_agent_process_broker 2>/dev/null | head -1)
+    [[ -z "$broker_pid" ]] && return 1
+    ps -eo ppid= | grep -q "^ *${broker_pid}$"
 }
 
 caffeinate_running() {
