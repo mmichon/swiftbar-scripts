@@ -239,13 +239,28 @@ render_graph() {
     done
 }
 
+get_thermal_state() {
+    local therm_output
+    therm_output=$(pmset -g therm 2>/dev/null)
+    cpu_speed_limit=$(echo "$therm_output" | awk '/CPU_Speed_Limit/ {print $2}')
+    if [[ -n "$cpu_speed_limit" && "$cpu_speed_limit" -lt 100 ]]; then
+        is_throttling=1
+    else
+        is_throttling=0
+        cpu_speed_limit=100
+    fi
+}
+
 get_cpu_stats
+get_thermal_state
 
 if [[ "$top_proc" == *kernel_task* ]]; then
     second_proc_line=${top5[2]}
     second_proc_cpu=$(echo "$second_proc_line" | awk '{print $NF}')
     second_proc=$(echo "$second_proc_line" | awk '{$1=""; $NF=""; print $0}' | xargs)
     echo -n " $second_proc_cpu% ${second_proc:0:6} | font='SF Mono' size='12' color='#FF0000'"
+elif [[ "$is_throttling" -eq 1 ]]; then
+    echo -n " $top_proc_cpu% ${top_proc:0:6} | font='SF Mono' size='12' color='#FF0000'"
 else
     echo -n " $top_proc_cpu% ${top_proc:0:6} | font='SF Mono' size='12'"
 fi
@@ -260,6 +275,9 @@ output_bmp | base64
 echo "---"
 echo "$cpustr | refresh=true"
 echo "$loadstr | refresh=true"
+if [[ "$is_throttling" -eq 1 ]]; then
+    echo "Thermal throttle: CPU at ${cpu_speed_limit}% speed | color=#FF0000"
+fi
 echo "---"
 IFS=''
 echo "---"
