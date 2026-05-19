@@ -240,14 +240,19 @@ render_graph() {
 }
 
 get_thermal_state() {
-    local therm_output
-    therm_output=$(pmset -g therm 2>/dev/null)
-    cpu_speed_limit=$(echo "$therm_output" | awk '/CPU_Speed_Limit/ {print $2}')
-    if [[ -n "$cpu_speed_limit" && "$cpu_speed_limit" -lt 100 ]]; then
+    # com.apple.system.thermalpressure: 0=nominal, 1=moderate, 2=heavy, 3=trapping
+    thermal_pressure=$(notifyutil -g "com.apple.system.thermalpressure" 2>/dev/null | awk '{print $2}')
+    if [[ -n "$thermal_pressure" && "$thermal_pressure" -gt 0 ]]; then
         is_throttling=1
+        case "$thermal_pressure" in
+            1) thermal_label="Moderate" ;;
+            2) thermal_label="Heavy" ;;
+            3) thermal_label="Critical" ;;
+            *) thermal_label="Level $thermal_pressure" ;;
+        esac
     else
         is_throttling=0
-        cpu_speed_limit=100
+        thermal_label=""
     fi
 }
 
@@ -276,7 +281,7 @@ echo "---"
 echo "$cpustr | refresh=true"
 echo "$loadstr | refresh=true"
 if [[ "$is_throttling" -eq 1 ]]; then
-    echo "Thermal throttle: CPU at ${cpu_speed_limit}% speed | color=#FF0000"
+    echo "Thermal throttle: $thermal_label pressure | color=#FF0000"
 fi
 echo "---"
 IFS=''
