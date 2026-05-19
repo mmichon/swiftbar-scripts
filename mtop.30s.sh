@@ -245,14 +245,15 @@ get_thermal_state() {
     if [[ -n "$thermal_pressure" && "$thermal_pressure" -gt 0 ]]; then
         is_throttling=1
         case "$thermal_pressure" in
-            1) thermal_label="Moderate" ;;
-            2) thermal_label="Heavy" ;;
-            3) thermal_label="Critical" ;;
-            *) thermal_label="Level $thermal_pressure" ;;
+            1) thermal_label="Moderate"; thermal_color="#FFCC00" ;;
+            2) thermal_label="Heavy";    thermal_color="#FF6600" ;;
+            3) thermal_label="Critical"; thermal_color="#FF0000" ;;
+            *) thermal_label="Level $thermal_pressure"; thermal_color="#FF0000" ;;
         esac
     else
         is_throttling=0
         thermal_label=""
+        thermal_color=""
     fi
 }
 
@@ -265,7 +266,7 @@ if [[ "$top_proc" == *kernel_task* ]]; then
     second_proc=$(echo "$second_proc_line" | awk '{$1=""; $NF=""; print $0}' | xargs)
     echo -n " $second_proc_cpu% ${second_proc:0:6} | font='SF Mono' size='12' color='#FF0000'"
 elif [[ "$is_throttling" -eq 1 ]]; then
-    echo -n " $top_proc_cpu% ${top_proc:0:6} | font='SF Mono' size='12' color='#FF0000'"
+    echo -n " $top_proc_cpu% ${top_proc:0:6} | font='SF Mono' size='12' color='$thermal_color'"
 else
     echo -n " $top_proc_cpu% ${top_proc:0:6} | font='SF Mono' size='12'"
 fi
@@ -281,7 +282,7 @@ echo "---"
 echo "$cpustr | refresh=true"
 echo "$loadstr | refresh=true"
 if [[ "$is_throttling" -eq 1 ]]; then
-    echo "Thermal throttle: $thermal_label pressure | color=#FF0000"
+    echo "Thermal throttle: $thermal_label pressure | color=$thermal_color"
 fi
 echo "---"
 IFS=''
