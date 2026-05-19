@@ -57,7 +57,7 @@ output_color=""
 if [ "$pressure_level" -eq 4 ]; then
     output_color="#FF0000" # Red
 elif [ "$pressure_level" -eq 2 ]; then
-    output_color="#FFFF00" # Yellow
+    output_color="#FFCC00" # Yellow
 else
     output_color="" # System default (black in light mode, white in dark mode)
 fi
