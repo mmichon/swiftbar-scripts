@@ -186,7 +186,7 @@ output_bmp() {
 
 get_cpu_stats() {
     local IFS=$'\n'
-    topdata=($(top -F -R -l2 -o cpu -n 5 -s 2 -stats pid,command,cpu))
+    topdata=($(top -F -R -l2 -o cpu -n 5 -s 1 -stats pid,command,cpu))
     
     nlines=${#topdata[@]}
     histdata=($(tail -$((width - 1)) "$HISTORY_FILE"))
@@ -258,7 +258,7 @@ echo -n "| $icontype="
 output_bmp | base64
 
 echo "---"
-echo "$cpstr | refresh=true"
+echo "$cpustr | refresh=true"
 echo "$loadstr | refresh=true"
 echo "---"
 IFS=''

@@ -3,7 +3,7 @@
 # <swiftbar.title>Chrome Remote Desktop Mode</swiftbar.title>
 # <swiftbar.version>1.0</swiftbar.version>
 # <swiftbar.desc>Dims screen and enables caffeinate when a CRD session is active</swiftbar.desc>
-# <swiftbar.refreshOnOpen>true</swiftbar.refreshOnOpen>
+# <swiftbar.refreshOnOpen>false</swiftbar.refreshOnOpen>
 
 SCRIPT="$HOME/Library/Application Support/xbar/plugins/crd.15s.sh"
 FLAG_ACTIVE="/tmp/.crd-mode-active"
@@ -29,7 +29,7 @@ crd_log() {
 log_detection_state() {
     local broker_pid broker_children
     broker_pid=$(pgrep -x remoting_agent_process_broker 2>/dev/null | head -1)
-    broker_children=$(ps -eo ppid= | grep -c "^ *${broker_pid}$" 2>/dev/null || echo 0)
+    broker_children=$(ps -eo ppid= | grep -c "^ *${broker_pid}$" 2>/dev/null)
     crd_log "$1" "broker_pid=$broker_pid broker_children=$broker_children mode_on=$MODE_ON crd_active=$CRD_ACTIVE auto=$AUTO_MANAGED"
 }
 
@@ -177,12 +177,15 @@ fi
 
 # --- Menu bar title ---
 
-if $MODE_ON && $CRD_ACTIVE; then
-    echo "| sfimage=cursorarrow.rays color=#FF6600"
+if $MODE_ON && ! $AUTO_MANAGED; then
+    # Manually forced on — click icon to distinguish from auto
+    echo "| sfimage=cursorarrow.click"
+elif $MODE_ON && $CRD_ACTIVE; then
+    echo "| sfimage=cursorarrow.rays"
 elif $MODE_ON; then
-    echo "| sfimage=cursorarrow color=#888888"
+    echo "| sfimage=cursorarrow"
 else
-    echo "| sfimage=cursorarrow color=#444444"
+    echo "| sfimage=cursorarrow"
 fi
 
 echo "---"
