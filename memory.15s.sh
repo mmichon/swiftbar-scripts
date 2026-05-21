@@ -53,11 +53,22 @@ fi
 pressure_level=$(sysctl -n kern.memorystatus_vm_pressure_level)
 output_color=""
 
+# Appearance detection (SwiftBar/xbar variables or system default)
+APPEARANCE=${OS_APPEARANCE:-${SWIFTBAR_OS_APPEARANCE:-$(defaults read -g AppleInterfaceStyle 2>/dev/null || echo "Light")}}
+
+if [ "$APPEARANCE" = "Dark" ]; then
+    COLOR_CRITICAL="#FF3B30" # System Red
+    COLOR_WARNING="#FFCC00"  # System Yellow
+else
+    COLOR_CRITICAL="#D32F2F" # Darker Red for Light Mode
+    COLOR_WARNING="#E67E22"  # Darker Yellow/Orange for Light Mode
+fi
+
 # Conditional coloring based on memory pressure level
 if [ "$pressure_level" -eq 4 ]; then
-    output_color="#FF0000" # Red
+    output_color="$COLOR_CRITICAL"
 elif [ "$pressure_level" -eq 2 ]; then
-    output_color="#FFCC00" # Yellow
+    output_color="$COLOR_WARNING"
 else
     output_color="" # System default (black in light mode, white in dark mode)
 fi

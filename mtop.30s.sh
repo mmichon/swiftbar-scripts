@@ -240,15 +240,28 @@ render_graph() {
 }
 
 get_thermal_state() {
+    # Appearance detection
+    APPEARANCE=${OS_APPEARANCE:-${SWIFTBAR_OS_APPEARANCE:-$(defaults read -g AppleInterfaceStyle 2>/dev/null || echo "Light")}}
+
+    if [ "$APPEARANCE" = "Dark" ]; then
+        COLOR_CRITICAL="#FF3B30" # System Red
+        COLOR_WARNING="#FFCC00"  # System Yellow
+        COLOR_MODERATE="#FF9500" # System Orange
+    else
+        COLOR_CRITICAL="#D32F2F" # Darker Red for Light Mode
+        COLOR_WARNING="#E67E22"  # Darker Yellow/Orange for Light Mode
+        COLOR_MODERATE="#BF360C" # Deeper Orange for Light Mode
+    fi
+
     # com.apple.system.thermalpressure: 0=nominal, 1=moderate, 2=heavy, 3=trapping
     thermal_pressure=$(notifyutil -g "com.apple.system.thermalpressure" 2>/dev/null | awk '{print $2}')
     if [[ -n "$thermal_pressure" && "$thermal_pressure" -gt 0 ]]; then
         is_throttling=1
         case "$thermal_pressure" in
-            1) thermal_label="Moderate"; thermal_color="#FFCC00" ;;
-            2) thermal_label="Heavy";    thermal_color="#FF6600" ;;
-            3) thermal_label="Critical"; thermal_color="#FF0000" ;;
-            *) thermal_label="Level $thermal_pressure"; thermal_color="#FF0000" ;;
+            1) thermal_label="Moderate"; thermal_color="$COLOR_WARNING" ;;
+            2) thermal_label="Heavy";    thermal_color="$COLOR_MODERATE" ;;
+            3) thermal_label="Critical"; thermal_color="$COLOR_CRITICAL" ;;
+            *) thermal_label="Level $thermal_pressure"; thermal_color="$COLOR_CRITICAL" ;;
         esac
     else
         is_throttling=0
@@ -264,7 +277,7 @@ if [[ "$top_proc" == *kernel_task* ]]; then
     second_proc_line=${top5[2]}
     second_proc_cpu=$(echo "$second_proc_line" | awk '{print $NF}')
     second_proc=$(echo "$second_proc_line" | awk '{$1=""; $NF=""; print $0}' | xargs)
-    echo -n " $second_proc_cpu% ${second_proc:0:6} | font='SF Mono' size='12' color='#FF0000'"
+    echo -n " $second_proc_cpu% ${second_proc:0:6} | font='SF Mono' size='12' color='$COLOR_CRITICAL'"
 elif [[ "$is_throttling" -eq 1 ]]; then
     echo -n " $top_proc_cpu% ${top_proc:0:6} | font='SF Mono' size='12' color='$thermal_color'"
 else

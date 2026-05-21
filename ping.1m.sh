@@ -39,7 +39,7 @@ PING_TIMES=
 
 while [ $SITE_INDEX -lt ${#SITES[@]} ]; do
     NEXT_SITE="${SITES[$SITE_INDEX]}"
-    if RES=$(ping -c 2 -n -q "$NEXT_SITE" 2>/dev/null); then
+    if RES=$(ping -c 1 -n -q "$NEXT_SITE" 2>/dev/null); then
         NEXT_PING_TIME=$(echo "$RES" | awk -F '/' 'END {printf "%.0f\n", $5}')
     else
         NEXT_PING_TIME=$MAX_PING
@@ -78,28 +78,45 @@ else
   MSG="$AVG"'±'"${SD}ms"
 fi
 
+# Appearance detection
+APPEARANCE=${OS_APPEARANCE:-${SWIFTBAR_OS_APPEARANCE:-$(defaults read -g AppleInterfaceStyle 2>/dev/null || echo "Light")}}
+
+if [ "$APPEARANCE" = "Dark" ]; then
+    COLOR_CRITICAL_RGB=(255 0 0)    # Red
+    COLOR_WARNING_RGB=(255 204 0)  # Yellow
+    COLOR_NORMAL_RGB=(0 255 0)     # Green
+else
+    COLOR_CRITICAL_RGB=(211 47 47)  # Darker Red
+    COLOR_WARNING_RGB=(230 126 34) # Darker Yellow/Orange
+    COLOR_NORMAL_RGB=(46 125 50)   # Darker Green
+fi
+
 function colorize {
   latency=$1
   if [ "$latency" -le 20 ]; then
     echo ""
   elif [ "$latency" -gt 500 ]; then
-    echo "#FF0000"
+    printf "color=#%02x%02x%02x\n" "${COLOR_CRITICAL_RGB[0]}" "${COLOR_CRITICAL_RGB[1]}" "${COLOR_CRITICAL_RGB[2]}"
   else
     if [ "$latency" -le 160 ]; then
-      # 20ms to 160ms: Green to Yellow gradient
+      # 20ms to 160ms: Normal to Warning gradient
       percentage=$(awk -v lat="$latency" 'BEGIN { print (lat - 20) / 140 }')
-      red=$(awk -v p="$percentage" 'BEGIN { printf "%d", p * 255 }')
-      printf "#%02x%02x%02x\n" "$red" 255 0
+      r=$(awk -v p="$percentage" -v c1="${COLOR_NORMAL_RGB[0]}" -v c2="${COLOR_WARNING_RGB[0]}" 'BEGIN { printf "%d", c1 + (p * (c2 - c1)) }')
+      g=$(awk -v p="$percentage" -v c1="${COLOR_NORMAL_RGB[1]}" -v c2="${COLOR_WARNING_RGB[1]}" 'BEGIN { printf "%d", c1 + (p * (c2 - c1)) }')
+      b=$(awk -v p="$percentage" -v c1="${COLOR_NORMAL_RGB[2]}" -v c2="${COLOR_WARNING_RGB[2]}" 'BEGIN { printf "%d", c1 + (p * (c2 - c1)) }')
+      printf "color=#%02x%02x%02x\n" "$r" "$g" "$b"
     else
-      # 160ms to 500ms: Yellow to Red gradient
+      # 160ms to 500ms: Warning to Critical gradient
       percentage=$(awk -v lat="$latency" 'BEGIN { print (lat - 160) / 340 }')
-      green=$(awk -v p="$percentage" 'BEGIN { printf "%d", 255 - (p * 255) }')
-      printf "#%02x%02x%02x\n" 255 "$green" 0
+      r=$(awk -v p="$percentage" -v c1="${COLOR_WARNING_RGB[0]}" -v c2="${COLOR_CRITICAL_RGB[0]}" 'BEGIN { printf "%d", c1 + (p * (c2 - c1)) }')
+      g=$(awk -v p="$percentage" -v c1="${COLOR_WARNING_RGB[1]}" -v c2="${COLOR_CRITICAL_RGB[1]}" 'BEGIN { printf "%d", c1 + (p * (c2 - c1)) }')
+      b=$(awk -v p="$percentage" -v c1="${COLOR_WARNING_RGB[2]}" -v c2="${COLOR_CRITICAL_RGB[2]}" 'BEGIN { printf "%d", c1 + (p * (c2 - c1)) }')
+      printf "color=#%02x%02x%02x\n" "$r" "$g" "$b"
     fi
   fi
 }
 
-echo "$MSG | color=$(colorize $AVG) $MENUFONT"
+echo "$MSG | $(colorize $AVG) $MENUFONT"
 # | color=$(colorize $AVG) $MENUFONT"
 echo "---"
 SITE_INDEX=0
@@ -108,7 +125,7 @@ while [ $SITE_INDEX -lt ${#SITES[@]} ]; do
     if [ $PING_TIME -eq $MAX_PING ]; then
         PING_TIME="❌"
     else
-        PING_TIME="$PING_TIME ms | color=$(colorize $PING_TIME) font='$FONT' size='12'"
+        PING_TIME="$PING_TIME ms | $(colorize $PING_TIME) font='$FONT' size='12'"
 # color=$(colorize $PING_TIME) $FONT size=15"
     fi
 
