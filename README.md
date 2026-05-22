@@ -4,34 +4,24 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 
 ## Active Plugins
 
-### 1. Free Memory (`memory.15s.sh`)
-- **Description**: Displays the amount of free physical memory in your menu bar.
+### 1. System Metrics (`metrics.15s.sh`)
+- **Description**: A combined monitor for Memory, CPU, and Network latency.
 - **Features**:
-  - Automatically switches between GB and MB units.
-  - Color-coded text based on memory pressure (White = Normal, Yellow = Warning, Red = High Pressure).
-  - Quick link to open Activity Monitor from the dropdown.
+  - **Memory**: Displays free GB with color coding based on system pressure.
+  - **CPU**: Shows usage percentage and thermal throttling status.
+  - **Top Processes**: Automatically identifies the top non-kernel process if CPU usage exceeds 50%.
+  - **Ping**: Monitors network latency (mean ± standard deviation) to 8.8.8.8 and 1.1.1.1.
+  - **Compact UI**: Uses ANSI colors for per-metric status in a single line.
 
-### 2. ping (`ping.10s.sh`)
-- **Description**: Monitors network latency by pinging reliable DNS servers (Google 8.8.8.8 and Cloudflare 1.1.1.1).
-- **Features**:
-  - Displays average latency and standard deviation (±) in the menu bar.
-  - Color-coded based on speed (Green = Fast, Yellow = Moderate, Red = Slow).
-  - Detailed breakdown for each site in the dropdown.
-
-### 3. Chrome Remote Desktop Mode (`crd.5s.sh`)
-- **Description**: An automation script that detects active Chrome Remote Desktop sessions.
+### 2. Chrome Remote Desktop Mode (`crd.15s.sh`)
+- **Description**: Detects active Chrome Remote Desktop sessions and optimizes system state.
 - **Features**:
   - Automatically dims the screen to 0 brightness when a remote session is established.
   - Enables `caffeinate` to prevent the machine from sleeping during remote use.
   - Restores original brightness and disables caffeinate when the session ends.
-  - Manual toggle available via the menu bar.
 
-### 4. CPU Usage Graph (`mtop.10s.sh`)
-- **Description**: A visual CPU monitor inspired by the `top` command.
-- **Features**:
-  - Renders a real-time 25x16 mini bar graph of CPU utilization.
-  - Shows current top CPU-consuming process and its percentage in the menu bar.
-  - Dropdown displays load averages and the top 5 CPU hogs.
+### 3. Display Resolution (`resolution.30s.sh`)
+- **Description**: Displays the current screen resolution in the menu bar.
 
 ## Installation
 
