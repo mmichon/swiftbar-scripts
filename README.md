@@ -18,7 +18,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - Color-coded based on speed (Green = Fast, Yellow = Moderate, Red = Slow).
   - Detailed breakdown for each site in the dropdown.
 
-### 3. Chrome Remote Desktop Mode (`crd.5s.sh`)
+### 3. Chrome Remote Desktop Mode (`crd.15s.sh`)
 - **Description**: An automation script that detects active Chrome Remote Desktop sessions.
 - **Features**:
   - Automatically dims the screen to 0 brightness when a remote session is established.
@@ -26,15 +26,27 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - Restores original brightness and disables caffeinate when the session ends.
   - Manual toggle available via the menu bar.
 
-### 4. CPU Usage Graph (`mtop.10s.sh`)
+### 4. CPU Usage Graph (`mtop.30s.sh`)
 - **Description**: A visual CPU monitor inspired by the `top` command.
 - **Features**:
   - Renders a real-time 25x16 mini bar graph of CPU utilization.
   - Shows current top CPU-consuming process and its percentage in the menu bar.
   - Dropdown displays load averages and the top 5 CPU hogs.
+  - Apple Silicon thermal throttling detection via `pmset`.
+  - Stoplight color coding (green/yellow/red) for thermal pressure levels.
+
+### 5. Display Resolution Switcher (`resolution.30s.sh`)
+- **Description**: Switches between display layout presets from the menu bar.
+- **Dependencies**: [displayplacer](https://github.com/jakehilborn/displayplacer)
+- **Features**:
+  - Preset layouts: External 2560×1440 clamshell, iPad Sidecar extended, Built-in only.
+  - Dynamically detects built-in and external display IDs at runtime.
+  - Automatically triggers iPad Sidecar connection via a Shortcuts shortcut if the iPad isn't already connected.
+  - Menu bar icon reflects the current display mode (🖥️ / 📱 / 💻).
 
 ## Installation
 
 1. Install [SwiftBar](https://swiftbar.app/).
 2. Point SwiftBar to this directory in its preferences.
 3. Ensure the scripts are executable: `chmod +x *.sh`.
+4. For the resolution switcher, install `displayplacer`: `brew install displayplacer`.
