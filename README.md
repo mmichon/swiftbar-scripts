@@ -29,6 +29,13 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - Automatically triggers iPad Sidecar connection via a Shortcuts shortcut if the iPad isn't already connected.
   - Menu bar icon reflects the current display mode (🖥️ / 📱 / 💻).
 
+### 4. Mouse Speed Switcher (`mouse_speed.15s.sh`)
+- **Description**: Quickly toggle between different mouse tracking speed profiles.
+- **Features**:
+  - **Profiles**: Supports "Home" (1.0) and "On-the-Go" (3.0/Fastest) speed settings.
+  - **Instant Apply**: Uses a combination of `defaults` writes and a System Settings refresh to ensure hardware speed updates immediately.
+  - **Minimal UI**: Uses distinct mouse emojis (🖱️ / 🐁) to indicate the active profile in the menu bar.
+
 ## Installation
 
 1. Install [SwiftBar](https://swiftbar.app/).
