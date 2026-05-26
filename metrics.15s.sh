@@ -10,15 +10,15 @@
 RESET="\033[0m"
 APPEARANCE=${OS_APPEARANCE:-${SWIFTBAR_OS_APPEARANCE:-$(defaults read -g AppleInterfaceStyle 2>/dev/null || echo "Light")}}
 if [ "$APPEARANCE" = "Dark" ]; then
-    RED="\033[31m"
-    YELLOW="\033[33m"
-    COLOR_CRITICAL="#FF3B30"
-    COLOR_WARNING="#FFCC00"
+    RED="\033[38;5;196m"    # System Red
+    YELLOW="\033[38;5;226m" # System Yellow
+    COLOR_CRITICAL="#FF453A"
+    COLOR_WARNING="#FFD60A"
 else
-    RED="\033[31m"
-    YELLOW="\033[33m"
-    COLOR_CRITICAL="#D32F2F"
-    COLOR_WARNING="#E67E22"
+    RED="\033[38;5;160m"    # System Red (Darker)
+    YELLOW="\033[38;5;172m" # System Orange/Amber (Visible)
+    COLOR_CRITICAL="#FF3B30"
+    COLOR_WARNING="#FF9500"
 fi
 
 # --- Memory ---
