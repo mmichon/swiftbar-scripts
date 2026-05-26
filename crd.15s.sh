@@ -15,6 +15,14 @@ DEFAULT_BRIGHTNESS=0.8
 LOG_FILE="$HOME/Library/Logs/crd-plugin.log"
 LOG_MAX_LINES=2000
 
+# System Appearance
+APPEARANCE=${OS_APPEARANCE:-${SWIFTBAR_OS_APPEARANCE:-$(defaults read -g AppleInterfaceStyle 2>/dev/null || echo "Light")}}
+if [ "$APPEARANCE" = "Dark" ]; then
+    P_HEX="#ffffff"
+else
+    P_HEX="#000000"
+fi
+
 # --- Logging ---
 
 crd_log() {
@@ -179,47 +187,47 @@ fi
 
 if $MODE_ON && ! $AUTO_MANAGED; then
     # Manually forced on — click icon to distinguish from auto
-    echo "| sfimage=cursorarrow.click"
+    echo " | sfimage=cursorarrow.click"
 elif $MODE_ON && $CRD_ACTIVE; then
-    echo "| sfimage=cursorarrow.rays"
+    echo " | sfimage=cursorarrow.rays"
 elif $MODE_ON; then
-    echo "| sfimage=cursorarrow"
+    echo " | sfimage=cursorarrow"
 else
-    echo "| sfimage=cursorarrow"
+    echo " | sfimage=cursorarrow"
 fi
 
 echo "---"
 
 # Toggle action
 if $MODE_ON; then
-    echo "Disable CRD Mode | bash=\"$SCRIPT\" param1=disable terminal=false refresh=true"
+    echo "Disable CRD Mode | bash=\"$SCRIPT\" param1=disable terminal=false refresh=true color=primary"
 else
-    echo "Enable CRD Mode | bash=\"$SCRIPT\" param1=enable terminal=false refresh=true"
+    echo "Enable CRD Mode | bash=\"$SCRIPT\" param1=enable terminal=false refresh=true color=primary"
 fi
 
 echo "---"
 
 # Status info
 if $CRD_ACTIVE; then
-    echo "Session: Active | color=#FF6600"
+    echo "Session: Active | color=primary bash=true terminal=false"
 else
-    echo "Session: Idle | color=#888888"
+    echo "Session: Idle | color=primary bash=true terminal=false"
 fi
 
 if caffeinate_running; then
     caff_pid=$(cat "$PID_FILE" 2>/dev/null)
-    echo "Caffeinate: running (PID $caff_pid) | color=#00CC00"
+    echo "Caffeinate: running (PID $caff_pid) | color=primary bash=true terminal=false"
 else
-    echo "Caffeinate: off | color=#888888"
+    echo "Caffeinate: off | color=primary bash=true terminal=false"
 fi
 
 if brightness_available; then
     if [[ -f "$FLAG_DIMMED" ]]; then
-        echo "Brightness: dimmed | color=#00CC00"
+        echo "Brightness: dimmed | color=primary bash=true terminal=false"
     elif $MODE_ON; then
-        echo "Brightness: control unavailable | color=#888888"
+        echo "Brightness: control unavailable | color=primary bash=true terminal=false"
     fi
 else
     echo "---"
-    echo "⚠ brightness control unavailable | color=#FF0000"
+    echo "⚠ brightness control unavailable | color=primary bash=true terminal=false"
 fi

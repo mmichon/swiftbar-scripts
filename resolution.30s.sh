@@ -9,6 +9,14 @@ DISPLAYPLACER=/usr/local/bin/displayplacer
 IPAD_ID="4756CB7D-982A-4E4D-AE97-3D532E60AABD"
 LOG=/tmp/resolution_plugin.log
 
+# System Appearance
+APPEARANCE=${OS_APPEARANCE:-${SWIFTBAR_OS_APPEARANCE:-$(defaults read -g AppleInterfaceStyle 2>/dev/null || echo "Light")}}
+if [ "$APPEARANCE" = "Dark" ]; then
+    P_HEX="#ffffff"
+else
+    P_HEX="#000000"
+fi
+
 DISPLAY_LIST=$($DISPLAYPLACER list 2>/dev/null)
 
 # Dynamically find display IDs
@@ -109,17 +117,16 @@ BUILTIN_ACTIVE=$(echo "$DISPLAY_INFO" | awk '/'"${BUILTIN_ID}"'/{found=1} found 
 IPAD_PRESENT=$(echo "$DISPLAY_INFO" | grep -c "$IPAD_ID")
 
 if [ "$BUILTIN_ACTIVE" != "true" ] && [ -n "$EXTERNAL_ID" ]; then
-  ICON="🖥️"
+  echo " | sfimage=desktopcomputer"
 elif [ "$IPAD_PRESENT" -gt 0 ] && [ "$BUILTIN_ACTIVE" = "true" ]; then
-  ICON="📱"
+  echo " | sfimage=ipad"
 elif [ "$BUILTIN_ACTIVE" = "true" ]; then
-  ICON="💻"
+  echo " | sfimage=laptopcomputer"
 else
-  ICON="🖥️"
+  echo " | sfimage=desktopcomputer"
 fi
 
-echo "$ICON"
 echo "---"
-echo "🖥️  External 2560×1440 (clamshell) | bash='$0' param1=set param2=external terminal=false refresh=true"
-echo "📱  iPad Extended                   | bash='$0' param1=set param2=ipad terminal=false refresh=true"
-echo "💻  Built-in 1470×956              | bash='$0' param1=set param2=builtin terminal=false refresh=true"
+echo "🖥️  External 2560×1440 (clamshell) | bash='$0' param1=set param2=external terminal=false refresh=true color=primary"
+echo "📱  iPad Extended                   | bash='$0' param1=set param2=ipad terminal=false refresh=true color=primary"
+echo "💻  Built-in 1470×956              | bash='$0' param1=set param2=builtin terminal=false refresh=true color=primary"

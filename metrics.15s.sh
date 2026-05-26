@@ -7,21 +7,21 @@
 # <xbar.dependencies>bash, vm_stat, top, ping, bc</xbar.dependencies>
 
 # ANSI Color Codes
-RESET="\033[0m"
 APPEARANCE=${OS_APPEARANCE:-${SWIFTBAR_OS_APPEARANCE:-$(defaults read -g AppleInterfaceStyle 2>/dev/null || echo "Light")}}
 if [ "$APPEARANCE" = "Dark" ]; then
     RED="\033[38;5;196m"    # System Red
     YELLOW="\033[38;5;226m" # System Yellow
-    COLOR_CRITICAL="#FF453A"
-    COLOR_WARNING="#FFD60A"
+    P_ANSI="\033[38;2;255;255;255m" # Pure White
+    P_HEX="#ffffff"
 else
     RED="\033[38;5;160m"    # System Red (Darker)
     YELLOW="\033[38;5;172m" # System Orange/Amber (Visible)
-    COLOR_CRITICAL="#FF3B30"
-    COLOR_WARNING="#FF9500"
+    P_ANSI="\033[38;2;0;0;0m"       # Pure Black
+    P_HEX="#000000"
 fi
 
 # --- Memory ---
+# ... (rest of the logic stays same until output)
 vm_stat_output=$(vm_stat)
 pages_free=$(echo "$vm_stat_output" | awk '/Pages free:/ {print $3}' | sed 's/\.//')
 pages_inactive=$(echo "$vm_stat_output" | awk '/Pages inactive:/ {print $3}' | sed 's/\.//')
@@ -33,11 +33,10 @@ free_mem_gb=$(printf "%.1f" "$free_mem_gb")
 
 pressure_level=$(sysctl -n kern.memorystatus_vm_pressure_level)
 mem_ansi=""
-mem_hex=""
 if [ "$pressure_level" -eq 4 ]; then 
-    mem_ansi=$RED; mem_hex=$COLOR_CRITICAL
+    mem_ansi=$RED
 elif [ "$pressure_level" -eq 2 ]; then 
-    mem_ansi=$YELLOW; mem_hex=$COLOR_WARNING
+    mem_ansi=$YELLOW
 fi
 
 # --- CPU & Top Processes ---
@@ -74,12 +73,11 @@ fi
 
 thermal_pressure=$(notifyutil -g "com.apple.system.thermalpressure" 2>/dev/null | awk '{print $2}')
 cpu_ansi=""
-cpu_hex=""
 if [[ -n "$thermal_pressure" && "$thermal_pressure" -gt 0 ]]; then
     if [ "$thermal_pressure" -ge 2 ]; then 
-        cpu_ansi=$RED; cpu_hex=$COLOR_CRITICAL
+        cpu_ansi=$RED
     else 
-        cpu_ansi=$YELLOW; cpu_hex=$COLOR_WARNING
+        cpu_ansi=$YELLOW
     fi
 fi
 
@@ -94,7 +92,6 @@ for site in "${SITES[@]}"; do
 done
 
 ping_ansi=""
-ping_hex=""
 if [ ${#PING_TIMES[@]} -gt 0 ]; then
     sum=0; for t in "${PING_TIMES[@]}"; do sum=$((sum + t)); done
     mean=$((sum / ${#PING_TIMES[@]}))
@@ -102,30 +99,43 @@ if [ ${#PING_TIMES[@]} -gt 0 ]; then
     sd=$(echo "sqrt($sq_sum_diff / ${#PING_TIMES[@]})" | bc)
     ping_str="${mean}±${sd}ms"
     if [ "$mean" -gt 500 ]; then 
-        ping_ansi=$RED; ping_hex=$COLOR_CRITICAL
+        ping_ansi=$RED
     elif [ "$mean" -gt 150 ]; then 
-        ping_ansi=$YELLOW; ping_hex=$COLOR_WARNING
+        ping_ansi=$YELLOW
     fi
 else
     ping_str="ERR"
-    ping_ansi=$RED; ping_hex=$COLOR_CRITICAL
+    ping_ansi=$RED
 fi
 
 # --- Output ---
-# Menu Bar: ANSI colors, single space as dividers
-echo -e "${mem_ansi}${free_mem_gb}GB${RESET} ${cpu_ansi}${cpu_display}${RESET} ${ping_ansi}${ping_str}${RESET} | ansi=true font='SF Mono' size=12"
+# Menu Bar: ANSI colors only when active, otherwise default text
+# This ensures non-colored text is system-default black/white
+BAR_MEM="${free_mem_gb}GB"
+[ -n "$mem_ansi" ] && BAR_MEM="${mem_ansi}${BAR_MEM}${P_ANSI}"
+
+BAR_CPU="${cpu_display}"
+[ -n "$cpu_ansi" ] && BAR_CPU="${cpu_ansi}${BAR_CPU}${P_ANSI}"
+
+BAR_PING="${ping_str}"
+[ -n "$ping_ansi" ] && BAR_PING="${ping_ansi}${BAR_PING}${P_ANSI}"
+
+# Force starting with primary color if the first item isn't colored
+[ -z "$mem_ansi" ] && BAR_MEM="${P_ANSI}${BAR_MEM}"
+
+echo -e "${BAR_MEM} ${BAR_CPU} ${BAR_PING} | ansi=true font='SF Mono' size=12 color=primary bash=true terminal=false"
 echo "---"
-# Dropdown summary
-echo "${free_mem_gb}GB ${cpu_usage}% ${ping_str} | font='SF Mono' size=12"
+# Dropdown summary: Monochrome
+echo "${free_mem_gb}GB ${cpu_display} ${ping_str} | font='SF Mono' size=12 color=primary bash=true terminal=false"
 echo "---"
-echo "Memory Free: ${free_mem_gb}GB | color='$mem_hex'"
-echo "CPU Usage: ${cpu_usage}% | color='$cpu_hex'"
-echo "Ping (Mean±SD): ${ping_str} | color='$ping_hex'"
+echo "Memory Free: ${free_mem_gb}GB | color=primary bash=true terminal=false"
+echo "CPU Usage: ${cpu_usage}% | color=primary bash=true terminal=false"
+echo "Ping (Mean±SD): ${ping_str} | color=primary bash=true terminal=false"
 echo "---"
-echo "Top Processes:"
+echo "Top Processes: | color=primary bash=true terminal=false"
 echo "$top_processes" | while read -r line; do
-    echo "$line | font='SF Mono' size=11"
+    echo "$line | font='SF Mono' size=11 color=primary bash=true terminal=false"
 done
 echo "---"
-echo "Refresh | refresh=true"
-echo "Open Activity Monitor | bash='open' param1='-a' param2='Activity Monitor' terminal=false"
+echo "Refresh | refresh=true color=primary"
+echo "Open Activity Monitor | bash='open' param1='-a' param2='Activity Monitor' terminal=false color=primary"
