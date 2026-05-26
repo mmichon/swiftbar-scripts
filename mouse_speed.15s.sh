@@ -25,9 +25,8 @@ TRACKPAD_SPEED=$(defaults read -g com.apple.trackpad.scaling 2>/dev/null || echo
 if [ "$1" = "set" ]; then
     NEW_SPEED="$2"
 
-    # Update global domain (both mouse and trackpad for consistency)
+    # Update global domain (mouse only)
     defaults write -g com.apple.mouse.scaling -float "$NEW_SPEED"
-    defaults write -g com.apple.trackpad.scaling -float "$NEW_SPEED"
 
     # Update AppleMultitouchMouse if it exists
     if defaults read com.apple.AppleMultitouchMouse MouseScaling >/dev/null 2>&1; then
