@@ -13,11 +13,13 @@ if [ "$APPEARANCE" = "Dark" ]; then
     YELLOW="\033[38;5;226m" # System Yellow
     P_ANSI="\033[38;2;255;255;255m" # Pure White
     P_HEX="#ffffff"
+    RED_HEX="#FF0000"
 else
     RED="\033[38;5;160m"    # System Red (Darker)
     YELLOW="\033[38;5;172m" # System Orange/Amber (Visible)
     P_ANSI="\033[38;2;0;0;0m"       # Pure Black
     P_HEX="#000000"
+    RED_HEX="#D70000"
 fi
 
 # --- Memory ---
@@ -64,10 +66,13 @@ top_processes_full=$(echo "$top_output" | awk '
 top_processes=$(echo "$top_processes_full" | head -5 | awk -F'|' '{print $1 ": " $2 "%"}')
 
 # Get top non-kernel process for menu bar
-top_non_kernel=$(echo "$top_processes_full" | grep -v "kernel_task" | head -1 | awk -F'|' '{print $1}')
+top_non_kernel_line=$(echo "$top_processes_full" | grep -v "kernel_task" | head -1)
+top_non_kernel=$(echo "$top_non_kernel_line" | awk -F'|' '{print $1}')
+top_non_kernel_cpu=$(echo "$top_non_kernel_line" | awk -F'|' '{print $2}')
+top_non_kernel_cpu_int=$(printf "%.0f" "${top_non_kernel_cpu:-0}")
 
 cpu_display="${cpu_usage}%"
-if [ "$cpu_usage" -gt 50 ] && [ -n "$top_non_kernel" ]; then
+if [ -n "$top_non_kernel" ] && [ "$top_non_kernel_cpu_int" -gt 50 ]; then
     cpu_display="${cpu_usage}%(${top_non_kernel})"
 fi
 
@@ -123,7 +128,7 @@ BAR_PING="${ping_str}"
 # Force starting with primary color if the first item isn't colored
 [ -z "$mem_ansi" ] && BAR_MEM="${P_ANSI}${BAR_MEM}"
 
-echo -e "${BAR_MEM} ${BAR_CPU} ${BAR_PING} | ansi=true font='SF Mono' size=12 color=primary bash=true terminal=false"
+echo -e "${BAR_MEM} ${BAR_CPU} ${BAR_PING} | ansi=true font='SF Mono' size=12 color=primary"
 echo "---"
 # Dropdown summary: Monochrome
 echo "${free_mem_gb}GB ${cpu_display} ${ping_str} | font='SF Mono' size=12 color=primary bash=true terminal=false"
@@ -133,9 +138,17 @@ echo "CPU Usage: ${cpu_usage}% | color=primary bash=true terminal=false"
 echo "Ping (Mean±SD): ${ping_str} | color=primary bash=true terminal=false"
 echo "---"
 echo "Top Processes: | color=primary bash=true terminal=false"
-echo "$top_processes" | while read -r line; do
-    echo "$line | font='SF Mono' size=11 color=primary bash=true terminal=false"
-done
+line_num=0
+while IFS= read -r line; do
+    line_num=$((line_num + 1))
+    if [ "$line_num" -eq 1 ] && [[ -n "$thermal_pressure" && "$thermal_pressure" -ge 2 ]]; then
+        proc_name=$(echo "$line" | sed 's/: [0-9.]*%$//')
+        cpu_part=$(echo "$line" | grep -o '[0-9.]*%$')
+        echo -e "${proc_name}: ${RED}${cpu_part}\033[0m | font='SF Mono' size=11 ansi=true color=primary bash=true terminal=false"
+    else
+        echo "$line | font='SF Mono' size=11 color=primary bash=true terminal=false"
+    fi
+done <<< "$top_processes"
 echo "---"
 echo "Refresh | refresh=true color=primary"
 echo "Open Activity Monitor | bash='open' param1='-a' param2='Activity Monitor' terminal=false color=primary"
