@@ -94,7 +94,8 @@ enable_crd_mode() {
         local current
         current=$(get_brightness_value)
 
-        if [[ -n "$current" ]]; then
+        # Don't save a near-zero value — restore would just dim again
+        if [[ -n "$current" ]] && python3 -c "import sys; sys.exit(0 if float('$current') >= 0.1 else 1)" 2>/dev/null; then
             echo "$current" > "$BRIGHTNESS_FILE"
         else
             echo "$DEFAULT_BRIGHTNESS" > "$BRIGHTNESS_FILE"
