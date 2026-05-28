@@ -11,16 +11,16 @@ APPEARANCE=${OS_APPEARANCE:-${SWIFTBAR_OS_APPEARANCE:-$(defaults read -g AppleIn
 if [ "$APPEARANCE" = "Dark" ]; then
     RED="\033[38;5;196m"    # System Red
     YELLOW="\033[38;5;226m" # System Yellow
-    P_ANSI="\033[38;2;255;255;255m" # Pure White
     P_HEX="#ffffff"
     RED_HEX="#FF0000"
 else
     RED="\033[38;5;160m"    # System Red (Darker)
     YELLOW="\033[38;5;172m" # System Orange/Amber (Visible)
-    P_ANSI="\033[38;2;0;0;0m"       # Pure Black
     P_HEX="#000000"
     RED_HEX="#D70000"
 fi
+# Reset to SwiftBar's color=primary (adapts to light/dark) rather than hardcoded RGB
+P_ANSI="\033[0m"
 
 # --- Memory ---
 # ... (rest of the logic stays same until output)
@@ -124,9 +124,6 @@ BAR_CPU="${cpu_display}"
 
 BAR_PING="${ping_str}"
 [ -n "$ping_ansi" ] && BAR_PING="${ping_ansi}${BAR_PING}${P_ANSI}"
-
-# Force starting with primary color if the first item isn't colored
-[ -z "$mem_ansi" ] && BAR_MEM="${P_ANSI}${BAR_MEM}"
 
 echo -e "${BAR_MEM} ${BAR_CPU} ${BAR_PING} | ansi=true font='SF Mono' size=12 color=primary"
 echo "---"

@@ -3,3 +3,4 @@
 mtop.debug
 AGENTS.md
 .claude/
+__pycache__/

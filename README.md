@@ -36,6 +36,19 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - **Instant Apply**: Uses a combination of `defaults` writes and a System Settings refresh to ensure hardware speed updates immediately.
   - **Minimal UI**: Uses distinct mouse emojis (🖱️ / 🐁) to indicate the active profile in the menu bar.
 
+### 5. Background Sounds (`bgs.5s.sh`)
+- **Description**: Toggle macOS Background Sounds from the menu bar.
+- **Features**:
+  - Detects whether the `heard` daemon is playing by inspecting its open `.m4a` files.
+  - Shows the current sound name when active.
+  - On/off actions invoke the "Background sounds On" / "Background sounds Off" Shortcuts.
+
+### 6. Desktop Space Indicator (`space.1s.sh`)
+- **Description**: Shows the current macOS Desktop Space number in the menu bar.
+- **Features**:
+  - Uses private CoreGraphics APIs (`CGSCopyManagedDisplaySpaces`, `CGSGetActiveSpace`) via inline Swift to identify the active space.
+  - Refreshes every second for near-live tracking as you switch spaces.
+
 ## Installation
 
 1. Install [SwiftBar](https://swiftbar.app/).
