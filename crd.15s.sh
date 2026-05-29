@@ -2,13 +2,13 @@
 
 # <swiftbar.title>Chrome Remote Desktop Mode</swiftbar.title>
 # <swiftbar.version>1.0</swiftbar.version>
-# <swiftbar.desc>Dims screen and disables sleep via pmset when a CRD session is active</swiftbar.desc>
+# <swiftbar.desc>Dims screen and prevents system sleep via caffeinate when a CRD session is active</swiftbar.desc>
 # <swiftbar.refreshOnOpen>false</swiftbar.refreshOnOpen>
 
 SCRIPT="$HOME/Library/Application Support/xbar/plugins/crd.15s.sh"
 FLAG_ACTIVE="/tmp/.crd-mode-active"
 FLAG_AUTO="/tmp/.crd-auto-managed"
-DISABLESLEEP_FLAG="/tmp/.crd-disablesleep-active"
+PID_FILE="/tmp/.crd-caffeinate-pid"
 BRIGHTNESS_FILE="/tmp/.crd-original-brightness"
 FLAG_DIMMED="/tmp/.crd-brightness-dimmed"
 DEFAULT_BRIGHTNESS=0.8
@@ -82,12 +82,10 @@ is_crd_session_active() {
     ps -eo ppid= | grep -q "^ *${broker_pid}$"
 }
 
-is_on_ac_power() {
-    pmset -g ps 2>/dev/null | head -1 | grep -q "AC Power"
-}
-
-disablesleep_active() {
-    [[ -f "$DISABLESLEEP_FLAG" ]]
+caffeinate_running() {
+    local pid
+    pid=$(cat "$PID_FILE" 2>/dev/null)
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
 }
 
 enable_crd_mode() {
@@ -107,12 +105,10 @@ enable_crd_mode() {
         touch "$FLAG_DIMMED"
     fi
 
-    # Disable sleep via pmset (only on AC power)
-    if ! disablesleep_active && is_on_ac_power; then
-        sudo pmset -a disablesleep 1
-        touch "$DISABLESLEEP_FLAG"
-    elif ! is_on_ac_power; then
-        crd_log "WARN" "Skipping disablesleep — not on AC power"
+    # Prevent system sleep via caffeinate -s (AC-only; no sudo needed)
+    if ! caffeinate_running; then
+        caffeinate -s &
+        echo $! > "$PID_FILE"
     fi
 
     touch "$FLAG_ACTIVE"
@@ -131,11 +127,11 @@ disable_crd_mode() {
     fi
     rm -f "$BRIGHTNESS_FILE" "$FLAG_DIMMED"
 
-    # Re-enable sleep via pmset
-    if disablesleep_active; then
-        sudo pmset -a disablesleep 0
-        rm -f "$DISABLESLEEP_FLAG"
-    fi
+    # Kill caffeinate
+    local pid
+    pid=$(cat "$PID_FILE" 2>/dev/null)
+    [[ -n "$pid" ]] && kill "$pid" 2>/dev/null
+    rm -f "$PID_FILE"
 
     rm -f "$FLAG_ACTIVE" "$FLAG_AUTO"
 }
@@ -219,10 +215,11 @@ else
     echo "Session: Idle | color=primary bash=true terminal=false"
 fi
 
-if disablesleep_active; then
-    echo "Sleep: disabled | color=primary bash=true terminal=false"
+if caffeinate_running; then
+    caff_pid=$(cat "$PID_FILE" 2>/dev/null)
+    echo "Caffeinate: running (PID $caff_pid) | color=primary bash=true terminal=false"
 else
-    echo "Sleep: normal | color=primary bash=true terminal=false"
+    echo "Caffeinate: off | color=primary bash=true terminal=false"
 fi
 
 if brightness_available; then

@@ -17,7 +17,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 - **Description**: Detects active Chrome Remote Desktop sessions and optimizes system state.
 - **Features**:
   - Automatically dims the screen to 0 brightness when a remote session is established.
-  - Disables system sleep via `pmset disablesleep` to keep the machine awake during remote use (AC power only).
+  - Prevents system sleep via `caffeinate -s` to keep the machine awake during remote use (AC power only).
   - Restores original brightness and re-enables sleep when the session ends.
 
 ### 3. Display Resolution Switcher (`resolution.30s.sh`)
