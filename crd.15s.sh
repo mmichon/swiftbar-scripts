@@ -267,9 +267,6 @@ elif ! $CRD_ACTIVE && $MODE_ON && $AUTO_MANAGED; then
     disable_crd_mode
     MODE_ON=false
 else
-    if $MODE_ON || $CRD_ACTIVE; then
-        log_detection_state "TICK"
-    fi
     if $MODE_ON; then
         assert_user_active
         if is_screen_locked; then
