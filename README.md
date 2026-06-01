@@ -15,10 +15,14 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 
 ### 2. Chrome Remote Desktop Mode (`crd.15s.sh`)
 - **Description**: Detects active Chrome Remote Desktop sessions and optimizes system state.
+- **Dependencies**: Passwordless sudo for `pmset` (see Installation).
 - **Features**:
   - Automatically dims the screen to 0 brightness when a remote session is established.
-  - Prevents system sleep via `caffeinate -s` to keep the machine awake during remote use (AC power only).
-  - Restores original brightness and re-enables sleep when the session ends.
+  - Prevents lock screen by simulating mouse movement every 5s via a compiled Swift helper (`.crd-jiggle`), resetting the HID idle timer.
+  - Disables hot corners that could trigger display sleep or screen lock; restores them on disable.
+  - Prevents system and display sleep via `pmset` as a safety net (AC power only).
+  - Logs lock state (`locked=0/1`) on every tick and alerts on lock-during-active failures.
+  - Restores original brightness, sleep settings, and hot corners when the session ends.
 
 ### 3. Display Resolution Switcher (`resolution.30s.sh`)
 - **Description**: Switches between display layout presets from the menu bar.
@@ -55,3 +59,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 2. Point SwiftBar to this directory in its preferences.
 3. Ensure the scripts are executable: `chmod +x *.sh`.
 4. For the resolution switcher, install `displayplacer`: `brew install displayplacer`.
+5. For the CRD plugin, grant passwordless sudo for `pmset`:
+   ```
+   echo "$USER ALL = (ALL) NOPASSWD:/usr/bin/pmset" | sudo tee /etc/sudoers.d/pmset
+   ```
