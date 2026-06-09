@@ -21,6 +21,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - Prevents lock screen by simulating mouse movement every 5s via a compiled Swift helper (`.crd-jiggle`), resetting the HID idle timer.
   - Disables hot corners that could trigger display sleep or screen lock; restores them on disable.
   - Prevents system and display sleep via `pmset` as a safety net (AC power only).
+  - **Leave On mode**: an optional persistent toggle that keeps the system and display awake even when no session is detected. Survives reboots/sleep-wake (flag stored in the plugin dir, not `/tmp`), keeps the local screen visible when idle (only dims while a session is actually active), and shows a filled-pin menu-bar icon.
   - Logs lock state (`locked=0/1`) on every tick and alerts on lock-during-active failures.
   - Restores original brightness, sleep settings, and hot corners when the session ends.
 

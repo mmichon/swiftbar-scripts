@@ -9,6 +9,8 @@ SCRIPT="$HOME/Library/Application Support/xbar/plugins/crd.15s.sh"
 FLAG_ACTIVE="/tmp/.crd-mode-active"
 FLAG_AUTO="/tmp/.crd-auto-managed"
 FLAG_MANUAL_OFF="/tmp/.crd-manual-off"
+# Persistent (survives reboot): keep sleep/display awake even with no CRD session
+FLAG_LEAVE_ON="$(dirname "$SCRIPT")/.crd-leave-on"
 DISPLAYSLEEP_FILE="/tmp/.crd-original-displaysleep"
 DEFAULT_DISPLAYSLEEP=5
 BRIGHTNESS_FILE="/tmp/.crd-original-brightness"
@@ -16,6 +18,7 @@ FLAG_DIMMED="/tmp/.crd-brightness-dimmed"
 DEFAULT_BRIGHTNESS=0.8
 HOTCORNERS_FILE="/tmp/.crd-original-hotcorners"
 FLAG_WAS_LOCKED="/tmp/.crd-was-locked"
+IDLE_SINCE_FILE="/tmp/.crd-idle-since"
 LOG_FILE="$HOME/Library/Logs/crd-plugin.log"
 LOG_MAX_LINES=2000
 
@@ -42,7 +45,7 @@ log_detection_state() {
     local has_assertion screen_locked
     has_assertion=$(pmset -g assertions 2>/dev/null | grep -c 'Remoting session is active')
     is_screen_locked && screen_locked=1 || screen_locked=0
-    crd_log "$1" "crd_assertion=$has_assertion mode_on=$MODE_ON crd_active=$CRD_ACTIVE auto=$AUTO_MANAGED locked=$screen_locked"
+    crd_log "$1" "crd_assertion=$has_assertion mode_on=$MODE_ON crd_active=$CRD_ACTIVE auto=$AUTO_MANAGED leave_on=${LEAVE_ON:-false} locked=$screen_locked"
 }
 
 # --- Helpers ---
@@ -154,7 +157,7 @@ restore_hot_corners() {
     killall Dock 2>/dev/null
 }
 
-enable_crd_mode() {
+dim_screen() {
     # Save and dim brightness
     if brightness_available; then
         local current
@@ -170,6 +173,13 @@ enable_crd_mode() {
         set_brightness_value 0
         touch "$FLAG_DIMMED"
     fi
+}
+
+enable_crd_mode() {
+    # $1: whether to dim the screen (default true). Leave-on mode keeps the
+    # screen visible when no session is active, so it passes false.
+    local dim=${1:-true}
+    $dim && dim_screen
 
     # Disable system sleep via pmset (only on AC power)
     if ! disablesleep_active && is_on_ac_power; then
@@ -192,8 +202,7 @@ enable_crd_mode() {
     touch "$FLAG_ACTIVE"
 }
 
-disable_crd_mode() {
-    # Restore brightness
+restore_brightness() {
     if brightness_available; then
         local saved
         saved=$(cat "$BRIGHTNESS_FILE" 2>/dev/null)
@@ -204,6 +213,17 @@ disable_crd_mode() {
         fi
     fi
     rm -f "$BRIGHTNESS_FILE" "$FLAG_DIMMED"
+}
+
+disable_crd_mode() {
+    # Only restore brightness if CRD session is gone — the CRD host holds its
+    # own NoDisplaySleepAssertion so pmset can't sleep the display while
+    # connected. Keeping brightness at 0 is the only way to "darken" the screen.
+    if is_crd_session_active; then
+        crd_log "INFO" "CRD session still active — keeping brightness dimmed"
+    else
+        restore_brightness
+    fi
 
     # Re-enable sleep via pmset
     if disablesleep_active; then
@@ -219,7 +239,7 @@ disable_crd_mode() {
     rm -f "$DISPLAYSLEEP_FILE"
 
     restore_hot_corners
-    rm -f "$FLAG_ACTIVE" "$FLAG_AUTO" "$FLAG_WAS_LOCKED"
+    rm -f "$FLAG_ACTIVE" "$FLAG_AUTO" "$FLAG_WAS_LOCKED" "$IDLE_SINCE_FILE"
 }
 
 # --- Action mode ---
@@ -236,7 +256,30 @@ case "$1" in
         MODE_ON=true; CRD_ACTIVE=false; AUTO_MANAGED=false
         log_detection_state "MANUAL-DISABLE"
         touch "$FLAG_MANUAL_OFF"
+        rm -f "$FLAG_LEAVE_ON"
         disable_crd_mode
+        exit 0
+        ;;
+    leaveon-on)
+        MODE_ON=false; CRD_ACTIVE=false; AUTO_MANAGED=false
+        is_crd_session_active && CRD_ACTIVE=true
+        log_detection_state "LEAVE-ON"
+        touch "$FLAG_LEAVE_ON"
+        rm -f "$FLAG_MANUAL_OFF" "$FLAG_AUTO"
+        enable_crd_mode "$CRD_ACTIVE"
+        exit 0
+        ;;
+    leaveon-off)
+        MODE_ON=true; CRD_ACTIVE=false; AUTO_MANAGED=false
+        is_crd_session_active && CRD_ACTIVE=true
+        log_detection_state "LEAVE-OFF"
+        rm -f "$FLAG_LEAVE_ON"
+        if $CRD_ACTIVE; then
+            # Session still up — hand back to auto so it disables when it ends
+            touch "$FLAG_AUTO"
+        else
+            disable_crd_mode
+        fi
         exit 0
         ;;
 esac
@@ -252,17 +295,42 @@ MODE_ON=false
 AUTO_MANAGED=false
 [[ -f "$FLAG_AUTO" ]] && AUTO_MANAGED=true
 
-# Clear manual-off override once the session actually ends
-if ! $CRD_ACTIVE; then
-    rm -f "$FLAG_MANUAL_OFF"
+LEAVE_ON=false
+[[ -f "$FLAG_LEAVE_ON" ]] && LEAVE_ON=true
+
+# Clear manual-off override only after CRD has been idle for 5+ minutes
+# (protects against assertion flicker causing premature auto-re-enable)
+MANUAL_OFF_GRACE=300
+if ! $CRD_ACTIVE && [[ -f "$FLAG_MANUAL_OFF" ]]; then
+    if [[ ! -f "$IDLE_SINCE_FILE" ]]; then
+        date +%s > "$IDLE_SINCE_FILE"
+    else
+        idle_since=$(cat "$IDLE_SINCE_FILE")
+        idle_duration=$(( $(date +%s) - idle_since ))
+        if (( idle_duration >= MANUAL_OFF_GRACE )); then
+            rm -f "$FLAG_MANUAL_OFF" "$IDLE_SINCE_FILE"
+        fi
+    fi
+elif $CRD_ACTIVE; then
+    rm -f "$IDLE_SINCE_FILE"
 fi
 
-if $CRD_ACTIVE && ! $MODE_ON && ! [[ -f "$FLAG_MANUAL_OFF" ]]; then
+# Restore brightness once CRD session ends (deferred from disable_crd_mode)
+if ! $CRD_ACTIVE && ! $MODE_ON && [[ -f "$FLAG_DIMMED" ]]; then
+    crd_log "INFO" "CRD session ended — restoring brightness"
+    restore_brightness
+fi
+
+if $LEAVE_ON && ! $MODE_ON; then
+    log_detection_state "LEAVE-ON-ENABLE"
+    enable_crd_mode "$CRD_ACTIVE"
+    MODE_ON=true
+elif $CRD_ACTIVE && ! $MODE_ON && ! [[ -f "$FLAG_MANUAL_OFF" ]]; then
     log_detection_state "AUTO-ENABLE"
     touch "$FLAG_AUTO"
     enable_crd_mode
     MODE_ON=true
-elif ! $CRD_ACTIVE && $MODE_ON && $AUTO_MANAGED; then
+elif ! $CRD_ACTIVE && $MODE_ON && $AUTO_MANAGED && ! $LEAVE_ON; then
     log_detection_state "AUTO-DISABLE"
     disable_crd_mode
     MODE_ON=false
@@ -280,6 +348,18 @@ else
                 rm -f "$FLAG_WAS_LOCKED"
             fi
         fi
+    fi
+fi
+
+# Leave-on: dim only while a session is actually active; otherwise keep the
+# local screen visible (the whole point of "leave on" is to not go dark).
+if $LEAVE_ON && $MODE_ON; then
+    if $CRD_ACTIVE && [[ ! -f "$FLAG_DIMMED" ]]; then
+        crd_log "INFO" "Leave-on: session started — dimming"
+        dim_screen
+    elif ! $CRD_ACTIVE && [[ -f "$FLAG_DIMMED" ]]; then
+        crd_log "INFO" "Leave-on: session ended — restoring brightness"
+        restore_brightness
     fi
 fi
 
@@ -303,11 +383,15 @@ if ! $MODE_ON && ! $CRD_ACTIVE; then
         crd_log "WARN" "Stale hot corner overrides detected while idle — restoring"
         restore_hot_corners
     fi
+    rm -f "$IDLE_SINCE_FILE"
 fi
 
 # --- Menu bar title ---
 
-if $MODE_ON && ! $AUTO_MANAGED; then
+if $LEAVE_ON; then
+    # Leave-on (always awake) — pin icon to distinguish from session-driven modes
+    echo " | sfimage=pin.fill"
+elif $MODE_ON && ! $AUTO_MANAGED; then
     # Manually forced on — click icon to distinguish from auto
     echo " | sfimage=cursorarrow.click"
 elif $MODE_ON && $CRD_ACTIVE; then
@@ -327,6 +411,13 @@ else
     echo "Enable CRD Mode | bash=\"$SCRIPT\" param1=enable terminal=false refresh=true color=primary"
 fi
 
+# Leave-on toggle: keep system/display awake even with no CRD session
+if $LEAVE_ON; then
+    echo "✓ Leave On (always awake) | bash=\"$SCRIPT\" param1=leaveon-off terminal=false refresh=true color=primary"
+else
+    echo "Leave On (always awake) | bash=\"$SCRIPT\" param1=leaveon-on terminal=false refresh=true color=primary"
+fi
+
 echo "---"
 
 # Status info
@@ -334,6 +425,10 @@ if $CRD_ACTIVE; then
     echo "Session: Active | color=primary bash=true terminal=false"
 else
     echo "Session: Idle | color=primary bash=true terminal=false"
+fi
+
+if $LEAVE_ON; then
+    echo "Mode: Leave on (always awake) | color=primary bash=true terminal=false"
 fi
 
 if disablesleep_active; then
