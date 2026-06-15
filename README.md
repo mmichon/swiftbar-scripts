@@ -49,9 +49,14 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - On/off actions invoke the "Background sounds On" / "Background sounds Off" Shortcuts.
 
 ### 6. Desktop Space Indicator (`space.1s.sh`)
-- **Description**: Shows the current macOS Desktop Space number in the menu bar.
+- **Description**: Shows the current macOS Desktop Space number in the menu bar, with a per-space summary of what's running in the dropdown.
 - **Features**:
-  - Uses private CoreGraphics APIs (`CGSCopyManagedDisplaySpaces`, `CGSGetActiveSpace`) via inline Swift to identify the active space.
+  - Uses private CoreGraphics APIs (`CGSCopyManagedDisplaySpaces`, `CGSGetActiveSpace`, `CGSCopySpacesForWindows`) via inline Swift to identify the active space and map each window to its space.
+  - Per-space summary: lists the key app(s) on each space, and for Chrome shows the active tab's page title (the "topic") — e.g. `Desktop 4 — Chrome: Travel planning`.
+  - Filters out minimized/hidden windows and transient popovers/panels by requiring a real window title, so the summary matches what you actually see on each space.
+  - Fully native (one window-list pass plus a per-window space lookup, a few ms) — no AppleScript, polling, or caching.
+  - Chrome topics require Screen Recording permission for xbar (to read window titles); without it the summary degrades gracefully to app names only and shows an inline hint.
+  - Compiles the inline Swift to a cached binary, recompiling only when the script changes (~20ms/tick vs ~750ms to JIT each tick).
   - Refreshes every second for near-live tracking as you switch spaces.
 
 ## Installation
