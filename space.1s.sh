@@ -247,25 +247,30 @@ func run() {
         print("\(truncatedAppName) | sfimage=arrow.up.left.and.arrow.down.right template=true")
     }
 
+    // SwiftBar renders rows without an action as disabled (grey). Append a no-op
+    // action plus the primary (mode-adaptive) color so info rows read clearly,
+    // matching the other plugins in this repo.
+    let readable = "color=primary bash=true terminal=false"
+
     print("---")
-    print("Desktop Space Info | header=true")
+    print("Desktop Space Info | \(readable)")
 
     let currentSpace = displays.flatMap { $0.spaces }.first { $0.isCurrent }
     let currentSummary = currentSpace.flatMap { summary(for: $0) }
 
     if let globalIdx = activeGlobalIndex {
         let suffix = currentSummary.map { " — \($0)" } ?? ""
-        print("Current Space: \(globalIdx) (Global)\(suffix)")
+        print("Current Space: \(globalIdx) (Global)\(suffix) | \(readable)")
     } else {
         let frontApp = NSWorkspace.shared.frontmostApplication
         let appName = frontApp?.localizedName ?? "Unknown App"
-        print("Current Space: Fullscreen (\(appName))")
+        print("Current Space: Fullscreen (\(appName)) | \(readable)")
     }
 
     if let dIdx = activeDisplayIndex {
-        print("Display: \(dIdx + 1)")
+        print("Display: \(dIdx + 1) | \(readable)")
         if let localIdx = activeLocalIndex {
-            print("Space on Display: \(localIdx)")
+            print("Space on Display: \(localIdx) | \(readable)")
         }
     }
 
@@ -273,7 +278,7 @@ func run() {
 
     for display in displays {
         let displayName = "Display \(display.index + 1) (\(display.identifier.prefix(8))...)"
-        print("\(displayName) | header=true")
+        print("\(displayName) | \(readable)")
 
         for space in display.spaces {
             let prefix = space.isCurrent ? "● " : "  "
@@ -298,7 +303,7 @@ func run() {
 
             let detailStr = details.isEmpty ? "" : " (\(details.joined(separator: ", ")))"
             let summaryStr = summary(for: space).map { " — \($0)" } ?? ""
-            print("\(label)\(detailStr)\(summaryStr) | size=12")
+            print("\(label)\(detailStr)\(summaryStr) | size=12 \(readable)")
         }
     }
 
@@ -308,7 +313,7 @@ func run() {
     let totalChromeWindows = windowsBySpace.values.reduce(0) { $0 + $1.chromeWindowCount }
     let totalChromeTitles = windowsBySpace.values.reduce(0) { $0 + $1.chromeTitles.count }
     if totalChromeWindows > 0 && totalChromeTitles == 0 {
-        print("Enable Screen Recording for Chrome topic names | size=11 color=gray href='x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'")
+        print("Enable Screen Recording for Chrome topic names | size=11 href='x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'")
     }
     print("Desktop & Dock Settings... | href='x-apple.systempreferences:com.apple.Desktop-Settings.extension'")
     print("Refresh | refresh=true")
