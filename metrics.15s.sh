@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # <xbar.title>System Metrics Combined</xbar.title>
-# <xbar.version>v1.3</xbar.version>
+# <xbar.version>v1.4</xbar.version>
 # <xbar.author>Gemini</xbar.author>
 # <xbar.desc>Combined Metrics with ANSI per-metric coloring, compact format, and fixed top processes.</xbar.desc>
 # <xbar.dependencies>bash, vm_stat, top, ping, bc</xbar.dependencies>
@@ -76,14 +76,64 @@ if [ -n "$top_non_kernel" ] && [ "$top_non_kernel_cpu_int" -gt 50 ]; then
     cpu_display="${cpu_usage}%(${top_non_kernel})"
 fi
 
+# --- Thermal / Throttle Detection ---
+# Combine multiple signals into throttle_level: 0=none, 1=moderate, 2=serious.
+# Each signal can only raise the level, never lower it (logical OR / max).
+#   1) thermalpressure notification - OS-level, coarse; often stays 0 on Apple Silicon.
+#   2) pmset -g therm CPU_Speed_Limit - no sudo; <100 means the OS is capping CPU speed.
+#   3) powermetrics SMC CPU die temperature - the most direct signal on M-series, but
+#      needs root. Used only when passwordless sudo is configured, e.g. via visudo:
+#        <your_user> ALL=(root) NOPASSWD: /usr/bin/powermetrics
+#      If sudo would prompt, the call fails silently and this signal is simply skipped.
+
+# Tunables
+PMSET_SPEED_SERIOUS=75   # CPU_Speed_Limit at/below this = serious throttle
+TEMP_MODERATE_C=90       # CPU die temp >= this = moderate
+TEMP_SERIOUS_C=100       # CPU die temp >= this = serious
+
+throttle_level=0
+throttle_detail=""
+
+# 1) Thermal pressure notification
 thermal_pressure=$(notifyutil -g "com.apple.system.thermalpressure" 2>/dev/null | awk '{print $2}')
-cpu_ansi=""
-if [[ -n "$thermal_pressure" && "$thermal_pressure" -gt 0 ]]; then
-    if [ "$thermal_pressure" -ge 2 ]; then 
-        cpu_ansi=$RED
-    else 
-        cpu_ansi=$YELLOW
+if [[ "$thermal_pressure" =~ ^[0-9]+$ && "$thermal_pressure" -gt 0 ]]; then
+    if [ "$thermal_pressure" -ge 2 ]; then
+        [ "$throttle_level" -lt 2 ] && throttle_level=2
+    else
+        [ "$throttle_level" -lt 1 ] && throttle_level=1
     fi
+    throttle_detail="${throttle_detail}pressure=${thermal_pressure} "
+fi
+
+# 2) pmset -g therm (unprivileged); CPU_Speed_Limit < 100 indicates speed capping
+speed_limit=$(pmset -g therm 2>/dev/null | awk -F'=' '/CPU_Speed_Limit/ {gsub(/[^0-9]/,"",$2); print $2; exit}')
+if [[ "$speed_limit" =~ ^[0-9]+$ && "$speed_limit" -lt 100 ]]; then
+    if [ "$speed_limit" -le "$PMSET_SPEED_SERIOUS" ]; then
+        [ "$throttle_level" -lt 2 ] && throttle_level=2
+    else
+        [ "$throttle_level" -lt 1 ] && throttle_level=1
+    fi
+    throttle_detail="${throttle_detail}speed=${speed_limit}% "
+fi
+
+# 3) powermetrics SMC die temperature (requires passwordless sudo; skipped otherwise)
+cpu_temp=$(sudo -n powermetrics -n 1 -i 100 --samplers smc 2>/dev/null \
+    | awk -F'[: ]+' '/CPU die temperature/ {print $4; exit}')
+if [[ "$cpu_temp" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    cpu_temp_int=$(printf "%.0f" "$cpu_temp")
+    if [ "$cpu_temp_int" -ge "$TEMP_SERIOUS_C" ]; then
+        [ "$throttle_level" -lt 2 ] && throttle_level=2
+    elif [ "$cpu_temp_int" -ge "$TEMP_MODERATE_C" ]; then
+        [ "$throttle_level" -lt 1 ] && throttle_level=1
+    fi
+    throttle_detail="${throttle_detail}temp=${cpu_temp_int}C "
+fi
+
+cpu_ansi=""
+if [ "$throttle_level" -ge 2 ]; then
+    cpu_ansi=$RED
+elif [ "$throttle_level" -ge 1 ]; then
+    cpu_ansi=$YELLOW
 fi
 
 # --- Ping ---
@@ -132,13 +182,16 @@ echo "${free_mem_gb}GB ${cpu_display} ${ping_str} | font='SF Mono' size=12 color
 echo "---"
 echo "Memory Free: ${free_mem_gb}GB | color=primary bash=true terminal=false"
 echo "CPU Usage: ${cpu_usage}% | color=primary bash=true terminal=false"
+thermal_status="nominal"
+[ -n "$throttle_detail" ] && thermal_status="${throttle_detail% }"
+echo "Thermal: ${thermal_status} | color=primary bash=true terminal=false"
 echo "Ping (Mean±SD): ${ping_str} | color=primary bash=true terminal=false"
 echo "---"
 echo "Top Processes: | color=primary bash=true terminal=false"
 line_num=0
 while IFS= read -r line; do
     line_num=$((line_num + 1))
-    if [ "$line_num" -eq 1 ] && [[ -n "$thermal_pressure" && "$thermal_pressure" -ge 2 ]]; then
+    if [ "$line_num" -eq 1 ] && [ "$throttle_level" -ge 2 ]; then
         proc_name=$(echo "$line" | sed 's/: [0-9.]*%$//')
         cpu_part=$(echo "$line" | grep -o '[0-9.]*%$')
         echo -e "${proc_name}: ${RED}${cpu_part}\033[0m | font='SF Mono' size=11 ansi=true color=primary bash=true terminal=false"
