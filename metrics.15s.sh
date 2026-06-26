@@ -81,10 +81,11 @@ fi
 # Each signal can only raise the level, never lower it (logical OR / max).
 #   1) thermalpressure notification - OS-level, coarse; often stays 0 on Apple Silicon.
 #   2) pmset -g therm CPU_Speed_Limit - no sudo; <100 means the OS is capping CPU speed.
-#   3) powermetrics SMC CPU die temperature - the most direct signal on M-series, but
-#      needs root. Used only when passwordless sudo is configured, e.g. via visudo:
-#        <your_user> ALL=(root) NOPASSWD: /usr/bin/powermetrics
-#      If sudo would prompt, the call fails silently and this signal is simply skipped.
+#   3) smctemp CPU temperature - the most direct signal on M-series. powermetrics
+#      does NOT expose a numeric die temp on Apple Silicon (only a qualitative
+#      pressure level), so we read the SMC sensor via `smctemp` instead (no sudo):
+#        brew install narugit/tap/smctemp
+#      If smctemp is not installed, this signal is simply skipped.
 
 # Tunables
 PMSET_SPEED_SERIOUS=75   # CPU_Speed_Limit at/below this = serious throttle
@@ -116,17 +117,18 @@ if [[ "$speed_limit" =~ ^[0-9]+$ && "$speed_limit" -lt 100 ]]; then
     throttle_detail="${throttle_detail}speed=${speed_limit}% "
 fi
 
-# 3) powermetrics SMC die temperature (requires passwordless sudo; skipped otherwise)
-cpu_temp=$(sudo -n powermetrics -n 1 -i 100 --samplers smc 2>/dev/null \
-    | awk -F'[: ]+' '/CPU die temperature/ {print $4; exit}')
+# 3) smctemp CPU temperature (no sudo; skipped if smctemp is not installed)
+if command -v smctemp >/dev/null 2>&1; then
+    cpu_temp=$(smctemp -c 2>/dev/null | tr -d ' ')
+fi
 if [[ "$cpu_temp" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
     cpu_temp_int=$(printf "%.0f" "$cpu_temp")
+    cpu_temp_f=$(printf "%.0f" "$(echo "$cpu_temp_int * 9 / 5 + 32" | bc -l)")
     if [ "$cpu_temp_int" -ge "$TEMP_SERIOUS_C" ]; then
         [ "$throttle_level" -lt 2 ] && throttle_level=2
     elif [ "$cpu_temp_int" -ge "$TEMP_MODERATE_C" ]; then
         [ "$throttle_level" -lt 1 ] && throttle_level=1
     fi
-    throttle_detail="${throttle_detail}temp=${cpu_temp_int}C "
 fi
 
 cpu_ansi=""
@@ -181,10 +183,30 @@ echo "---"
 echo "${free_mem_gb}GB ${cpu_display} ${ping_str} | font='SF Mono' size=12 color=primary bash=true terminal=false"
 echo "---"
 echo "Memory Free: ${free_mem_gb}GB | color=primary bash=true terminal=false"
-echo "CPU Usage: ${cpu_usage}% | color=primary bash=true terminal=false"
-thermal_status="nominal"
-[ -n "$throttle_detail" ] && thermal_status="${throttle_detail% }"
+if [ -n "$cpu_ansi" ]; then
+    echo -e "CPU Usage: ${cpu_ansi}${cpu_usage}%${P_ANSI} | ansi=true color=primary bash=true terminal=false"
+else
+    echo "CPU Usage: ${cpu_usage}% | color=primary bash=true terminal=false"
+fi
+thermal_mode="nominal"
+[ "$throttle_level" -ge 1 ] && thermal_mode="moderate"
+[ "$throttle_level" -ge 2 ] && thermal_mode="serious"
+thermal_status="$thermal_mode"
+[ -n "$throttle_detail" ] && thermal_status="${thermal_mode} (${throttle_detail% })"
 echo "Thermal: ${thermal_status} | color=primary bash=true terminal=false"
+if [ -n "$cpu_temp_int" ]; then
+    temp_ansi=""
+    if [ "$cpu_temp_int" -ge "$TEMP_SERIOUS_C" ]; then
+        temp_ansi=$RED
+    elif [ "$cpu_temp_int" -ge "$TEMP_MODERATE_C" ]; then
+        temp_ansi=$YELLOW
+    fi
+    if [ -n "$temp_ansi" ]; then
+        echo -e "Temperature: ${temp_ansi}${cpu_temp_f}°F${P_ANSI} | ansi=true color=primary bash=true terminal=false"
+    else
+        echo "Temperature: ${cpu_temp_f}°F | color=primary bash=true terminal=false"
+    fi
+fi
 echo "Ping (Mean±SD): ${ping_str} | color=primary bash=true terminal=false"
 echo "---"
 echo "Top Processes: | color=primary bash=true terminal=false"
