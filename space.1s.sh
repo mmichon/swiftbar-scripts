@@ -15,8 +15,42 @@ CACHE_DIR="${TMPDIR:-/tmp}/xbar-space-indicator.$(id -u)"
 BIN="$CACHE_DIR/space-indicator"
 STAMP="$CACHE_DIR/source.stamp"
 SELF="${BASH_SOURCE[0]}"
+LOCK="$CACHE_DIR/run.lock"
+
+# Runtime caps (seconds). BIN_TIMEOUT bounds a single render; LOCK_STALE is the
+# backstop for reclaiming a lock whose owner died without cleaning up.
+BIN_TIMEOUT=6
+LOCK_STALE=12
 
 mkdir -p "$CACHE_DIR"
+
+# --- Single-instance guard ---------------------------------------------------
+# SwiftBar fires this plugin every second. The render binary calls into
+# WindowServer (CGS*/CGWindowList), which can block indefinitely during
+# sleep/wake, lock, or fast user switching. Without a guard, each tick spawns
+# another copy that also wedges, piling up until the machine is buried in stuck
+# processes and SwiftBar stops refreshing every plugin. An atomic mkdir lock
+# keeps at most one run alive: a healthy in-progress run makes new ticks skip,
+# and a lock older than LOCK_STALE (owner died uncleanly) is reclaimed with any
+# lingering process killed.
+if ! mkdir "$LOCK" 2>/dev/null; then
+    owner=$(cat "$LOCK/pid" 2>/dev/null || echo "")
+    age=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))
+    if [ "$age" -lt "$LOCK_STALE" ] && [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+        # A recent run still owns the lock — let it finish; skip this tick.
+        exit 0
+    fi
+    # Stale or dead owner: kill any leftovers, then take over the lock.
+    if [ -n "$owner" ]; then
+        pkill -9 -P "$owner" 2>/dev/null || true
+        kill -9 "$owner" 2>/dev/null || true
+    fi
+    rm -rf "$LOCK"
+    mkdir "$LOCK" 2>/dev/null || exit 0
+fi
+echo $$ > "$LOCK/pid"
+trap 'rm -rf "$LOCK"' EXIT
+trap 'exit 143' INT TERM
 
 # Recompile if binary is missing or this script is newer than the stamp.
 if [ ! -x "$BIN" ] || [ "$SELF" -nt "$STAMP" ]; then
@@ -27,7 +61,21 @@ if [ ! -x "$BIN" ] || [ "$SELF" -nt "$STAMP" ]; then
     touch "$STAMP"
 fi
 
-exec "$BIN"
+# Run under a watchdog so a wedged WindowServer call can't hang the tick forever.
+# Output streams straight to SwiftBar; a killed run just yields one blank tick
+# that the next second replaces. We can't exec here (the lock-cleanup trap must
+# run), so the binary is a child whose stdout is inherited.
+"$BIN" &
+bin_pid=$!
+( sleep "$BIN_TIMEOUT"; kill -9 "$bin_pid" 2>/dev/null ) &
+wd_pid=$!
+wait "$bin_pid" 2>/dev/null || true
+kill "$wd_pid" 2>/dev/null || true
+wait "$wd_pid" 2>/dev/null || true
+
+# Stop before the embedded Swift source below (previously unreachable after the
+# exec; now that the binary runs as a child, bash would try to run it as shell).
+exit 0
 
 ### SWIFT BEGIN
 import Foundation
