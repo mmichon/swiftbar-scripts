@@ -85,6 +85,19 @@ is_crd_session_active() {
     pmset -g assertions 2>/dev/null | grep -q 'remoting_me2me_host.*Remoting session is active'
 }
 
+crd_session_age_secs() {
+    # Seconds since the current "Remoting session is active" assertion was
+    # created (pmset shows its elapsed HH:MM:SS). A fresh assertion is created
+    # on every connect, so this is the live session's start. Empty if no session.
+    local elapsed h m s
+    elapsed=$(pmset -g assertions 2>/dev/null \
+        | grep 'remoting_me2me_host.*Remoting session is active' \
+        | grep -oE '[0-9]{2}:[0-9]{2}:[0-9]{2}' | head -1)
+    [[ -z "$elapsed" ]] && return 1
+    IFS=: read -r h m s <<< "$elapsed"
+    echo $(( 10#$h * 3600 + 10#$m * 60 + 10#$s ))
+}
+
 is_on_ac_power() {
     pmset -g ps 2>/dev/null | head -1 | grep -q "AC Power"
 }
@@ -119,6 +132,10 @@ assert_user_active() {
 
 is_screen_locked() {
     ioreg -n Root -d1 2>/dev/null | grep -q '"CGSSessionScreenIsLocked"=Yes'
+}
+
+is_lid_closed() {
+    ioreg -r -k AppleClamshellState -d 4 2>/dev/null | grep -q '"AppleClamshellState" = Yes'
 }
 
 # Hot corner values that can trigger lock: 5=Screen Saver, 10=Display Sleep, 13=Lock Screen
@@ -298,27 +315,88 @@ AUTO_MANAGED=false
 LEAVE_ON=false
 [[ -f "$FLAG_LEAVE_ON" ]] && LEAVE_ON=true
 
-# Clear manual-off override only after CRD has been idle for 5+ minutes
-# (protects against assertion flicker causing premature auto-re-enable)
+# Clear the manual-off override once it no longer applies to the live session.
+# Two timestamp-based triggers, both robust to sleep/wake (when the plugin isn't
+# ticking) since /tmp flags and mtimes survive sleep:
+#   1. CRD idle for 5+ minutes — the disabled session has ended.
+#   2. A *new* CRD session started 5+ minutes after the manual disable. This
+#      catches the case where the machine slept overnight and woke straight into
+#      a fresh session: the first post-wake tick already sees CRD active, so the
+#      idle timer (trigger 1) never ran. Without this, a stale manual-off blocks
+#      auto-enable for the entire new session.
 MANUAL_OFF_GRACE=300
-if ! $CRD_ACTIVE && [[ -f "$FLAG_MANUAL_OFF" ]]; then
-    if [[ ! -f "$IDLE_SINCE_FILE" ]]; then
-        date +%s > "$IDLE_SINCE_FILE"
-    else
+if [[ -f "$FLAG_MANUAL_OFF" ]]; then
+    now=$(date +%s)
+    if ! $CRD_ACTIVE; then
+        [[ -f "$IDLE_SINCE_FILE" ]] || echo "$now" > "$IDLE_SINCE_FILE"
         idle_since=$(cat "$IDLE_SINCE_FILE")
-        idle_duration=$(( $(date +%s) - idle_since ))
-        if (( idle_duration >= MANUAL_OFF_GRACE )); then
+        if (( now - idle_since >= MANUAL_OFF_GRACE )); then
             rm -f "$FLAG_MANUAL_OFF" "$IDLE_SINCE_FILE"
         fi
+    else
+        rm -f "$IDLE_SINCE_FILE"
+        session_age=$(crd_session_age_secs) || session_age=""
+        manual_off_at=$(stat -f %m "$FLAG_MANUAL_OFF" 2>/dev/null)
+        if [[ -n "$session_age" && -n "$manual_off_at" ]]; then
+            session_start=$(( now - session_age ))
+            if (( session_start - manual_off_at >= MANUAL_OFF_GRACE )); then
+                crd_log "INFO" "Clearing stale manual-off — new CRD session started $(( session_start - manual_off_at ))s after manual disable"
+                rm -f "$FLAG_MANUAL_OFF"
+            fi
+        fi
     fi
-elif $CRD_ACTIVE; then
-    rm -f "$IDLE_SINCE_FILE"
 fi
 
 # Restore brightness once CRD session ends (deferred from disable_crd_mode)
 if ! $CRD_ACTIVE && ! $MODE_ON && [[ -f "$FLAG_DIMMED" ]]; then
     crd_log "INFO" "CRD session ended — restoring brightness"
     restore_brightness
+fi
+
+# Power-transition safeguard: when the laptop is unplugged (AC -> battery), tear
+# down Leave On and any active CRD keep-awake so the battery doesn't drain. Even
+# though disablesleep is never set on battery, leave-on/session mode still kills
+# display sleep, disables hot corners, and jiggles the mouse — all battery drains.
+# Tracked via a /tmp flag (survives sleep/wake; a missing flag on first run is
+# treated as the current state, so we only act on a real plugged->unplugged edge).
+POWER_STATE_FILE="/tmp/.crd-last-power-state"
+ON_AC=false
+is_on_ac_power && ON_AC=true
+PREV_POWER=$(cat "$POWER_STATE_FILE" 2>/dev/null)
+$ON_AC && echo "ac" > "$POWER_STATE_FILE" || echo "battery" > "$POWER_STATE_FILE"
+
+if [[ "$PREV_POWER" == "ac" ]] && ! $ON_AC && { $LEAVE_ON || $MODE_ON; }; then
+    log_detection_state "POWER-UNPLUGGED"
+    crd_log "WARN" "Unplugged (AC -> battery) — disabling Leave On / CRD mode to protect battery"
+    rm -f "$FLAG_LEAVE_ON"
+    LEAVE_ON=false
+    # If a remote session is still live, block auto re-enable while on battery.
+    # disable_crd_mode keeps brightness dimmed when a session is active, so the
+    # local screen stays dark; we just stop defeating sleep/lock.
+    $CRD_ACTIVE && touch "$FLAG_MANUAL_OFF"
+    disable_crd_mode
+    MODE_ON=false
+    AUTO_MANAGED=false
+fi
+
+# Battery guard (level-triggered): Leave On must NEVER keep the machine awake on
+# battery. The plugged->unplugged edge check above fires only on the single
+# transition tick, so it misses two real cases that silently drain the battery:
+#   1. Leave On toggled on while already unplugged (no edge to catch).
+#   2. A stale/cleared /tmp power-state flag (reboot or sleep/wake) that leaves
+#      PREV_POWER != "ac", so the edge condition can never become true again.
+# This runs every battery tick, so once unplugged Leave On always tears down.
+if ! $ON_AC && $LEAVE_ON; then
+    log_detection_state "BATTERY-LEAVEON-GUARD"
+    crd_log "WARN" "On battery with Leave On active — disabling to protect battery"
+    rm -f "$FLAG_LEAVE_ON"
+    LEAVE_ON=false
+    # If a remote session is still live, block auto re-enable while on battery
+    # (disable_crd_mode keeps brightness dimmed so the remote screen stays dark).
+    $CRD_ACTIVE && touch "$FLAG_MANUAL_OFF"
+    disable_crd_mode
+    MODE_ON=false
+    AUTO_MANAGED=false
 fi
 
 if $LEAVE_ON && ! $MODE_ON; then
@@ -349,6 +427,21 @@ else
             fi
         fi
     fi
+fi
+
+# Lid-closed safeguard (battery only): a closed lid on battery with no active
+# session and Leave On off means the laptop is in a bag — force a full teardown
+# so it can sleep and the battery doesn't drain. This is gated on !ON_AC on
+# purpose: a closed lid on AC power is clamshell-on-desk (external display), the
+# canonical reason to *manually* force CRD mode on to keep the machine awake and
+# reachable. Tearing that down would make the "Enable CRD Mode" pulldown appear
+# to do nothing — it would flip back off within one tick. A manual force-on and
+# a stale FLAG_ACTIVE (FLAG_AUTO cleared by sleep/wake) both look auto=false, so
+# we can't distinguish them; battery state is the reliable "in a bag" signal.
+if $MODE_ON && ! $CRD_ACTIVE && ! $LEAVE_ON && ! $ON_AC && is_lid_closed; then
+    crd_log "WARN" "Lid closed on battery with no session and Leave On off — disabling CRD mode to allow sleep"
+    disable_crd_mode
+    MODE_ON=false
 fi
 
 # Leave-on: dim only while a session is actually active; otherwise keep the
