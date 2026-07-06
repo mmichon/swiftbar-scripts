@@ -8,7 +8,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 - **Description**: A combined monitor for Memory, CPU, and Network latency.
 - **Features**:
   - **Memory**: Displays free GB with color coding based on system pressure.
-  - **CPU**: Shows usage percentage and thermal throttling status.
+  - **CPU**: Shows usage percentage, temperature (°F via `smctemp`), and thermal throttling status (`pmset` + `powermetrics` signals on Apple Silicon); usage is colored when throttling.
   - **Top Processes**: Automatically identifies the top non-kernel process if CPU usage exceeds 50%.
   - **Ping**: Monitors network latency (mean ± standard deviation) to 8.8.8.8 and 1.1.1.1.
   - **Compact UI**: Uses ANSI colors for per-metric status in a single line.
@@ -22,6 +22,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - Disables hot corners that could trigger display sleep or screen lock; restores them on disable.
   - Prevents system and display sleep via `pmset` as a safety net (AC power only).
   - **Leave On mode**: an optional persistent toggle that keeps the system and display awake even when no session is detected. Survives reboots/sleep-wake (flag stored in the plugin dir, not `/tmp`), keeps the local screen visible when idle (only dims while a session is actually active), and shows a filled-pin menu-bar icon.
+  - **Battery/lid safeguards**: never keeps the machine awake on battery — unplugging (AC→battery) or running on battery tears down Leave On and session keep-awake, and a closed lid on battery with no session forces a full teardown so it can sleep in a bag. A closed lid on AC (clamshell with external display) is respected, so a manual "Enable CRD Mode" still sticks.
   - Logs lock state (`locked=0/1`) on every tick and alerts on lock-during-active failures.
   - Restores original brightness, sleep settings, and hot corners when the session ends.
 
@@ -57,6 +58,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - Fully native (one window-list pass plus a per-window space lookup, a few ms) — no AppleScript, polling, or caching.
   - Chrome topics require Screen Recording permission for xbar (to read window titles); without it the summary degrades gracefully to app names only and shows an inline hint.
   - Compiles the inline Swift to a cached binary, recompiling only when the script changes (~20ms/tick vs ~750ms to JIT each tick).
+  - **Self-guarding**: a single-instance lock plus a watchdog keep a stalled WindowServer call (during sleep/wake, lock, or fast user switching) from piling 1s ticks into stuck processes — new ticks skip while a run is active, and a wedged run is bounded and killed.
   - Refreshes every second for near-live tracking as you switch spaces.
 
 ## Installation
