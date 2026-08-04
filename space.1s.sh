@@ -38,6 +38,10 @@ if ! mkdir "$LOCK" 2>/dev/null; then
     age=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))
     if [ "$age" -lt "$LOCK_STALE" ] && [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
         # A recent run still owns the lock — let it finish; skip this tick.
+        # Fall back to the last known output to prevent menu bar flickering.
+        if [ -f "$CACHE_DIR/last_output.txt" ]; then
+            cat "$CACHE_DIR/last_output.txt"
+        fi
         exit 0
     fi
     # Stale or dead owner: kill any leftovers, then take over the lock.
@@ -46,7 +50,12 @@ if ! mkdir "$LOCK" 2>/dev/null; then
         kill -9 "$owner" 2>/dev/null || true
     fi
     rm -rf "$LOCK"
-    mkdir "$LOCK" 2>/dev/null || exit 0
+    mkdir "$LOCK" 2>/dev/null || {
+        if [ -f "$CACHE_DIR/last_output.txt" ]; then
+            cat "$CACHE_DIR/last_output.txt"
+        fi
+        exit 0
+    }
 fi
 echo $$ > "$LOCK/pid"
 trap 'rm -rf "$LOCK"' EXIT
@@ -62,16 +71,29 @@ if [ ! -x "$BIN" ] || [ "$SELF" -nt "$STAMP" ]; then
 fi
 
 # Run under a watchdog so a wedged WindowServer call can't hang the tick forever.
-# Output streams straight to SwiftBar; a killed run just yields one blank tick
-# that the next second replaces. We can't exec here (the lock-cleanup trap must
-# run), so the binary is a child whose stdout is inherited.
-"$BIN" &
+# Redirect the watchdog subshell's stdout/stderr to /dev/null to avoid blocking
+# command substitutions or SwiftBar itself.
+OUT_FILE="$CACHE_DIR/current_output.txt"
+LAST_FILE="$CACHE_DIR/last_output.txt"
+
+"$BIN" > "$OUT_FILE" &
 bin_pid=$!
-( sleep "$BIN_TIMEOUT"; kill -9 "$bin_pid" 2>/dev/null ) &
+( sleep "$BIN_TIMEOUT"; kill -9 "$bin_pid" 2>/dev/null ) >/dev/null 2>&1 &
 wd_pid=$!
-wait "$bin_pid" 2>/dev/null || true
+
+status=0
+wait "$bin_pid" 2>/dev/null || status=$?
 kill "$wd_pid" 2>/dev/null || true
 wait "$wd_pid" 2>/dev/null || true
+
+if [ "$status" -eq 0 ] && [ -s "$OUT_FILE" ]; then
+    cat "$OUT_FILE"
+    cp "$OUT_FILE" "$LAST_FILE" 2>/dev/null || true
+else
+    if [ -f "$LAST_FILE" ]; then
+        cat "$LAST_FILE"
+    fi
+fi
 
 # Stop before the embedded Swift source below (previously unreachable after the
 # exec; now that the binary runs as a child, bash would try to run it as shell).
