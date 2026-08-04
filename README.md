@@ -9,7 +9,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 - **Features**:
   - **Memory**: Displays free GB with color coding based on system pressure.
   - **CPU**: Shows usage percentage, temperature (°F via `smctemp`), and thermal throttling status (`pmset` + `powermetrics` signals on Apple Silicon); usage is colored when throttling.
-  - **Top Processes**: Automatically identifies the top non-kernel process if CPU usage exceeds 50%.
+  - **Top Processes**: Lists the top CPU consumers; automatically surfaces the top non-kernel process in the menu bar if CPU usage exceeds 50%. Click any process in the dropdown to kill it — a confirmation dialog appears, then SIGTERM is sent, escalating to SIGKILL if the process survives.
   - **Ping**: Monitors network latency (mean ± standard deviation) to 8.8.8.8 and 1.1.1.1.
   - **Compact UI**: Uses ANSI colors for per-metric status in a single line.
 
