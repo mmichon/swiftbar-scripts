@@ -6,6 +6,24 @@
 # <xbar.desc>Combined Metrics with ANSI per-metric coloring, compact format, and fixed top processes.</xbar.desc>
 # <xbar.dependencies>bash, vm_stat, top, ping, bc</xbar.dependencies>
 
+# --- Kill action mode ---
+# When invoked as `metrics.15s.sh kill <pid> <name>` (from a dropdown click),
+# confirm, then SIGTERM the process, escalating to SIGKILL if it survives.
+if [ "$1" = "kill" ]; then
+    pid="$2"; name="$3"
+    osascript -e "display dialog \"Kill ${name} (PID ${pid})?\" buttons {\"Cancel\",\"Kill\"} default button \"Cancel\" with icon caution" >/dev/null 2>&1 || exit 0
+    kill "$pid" 2>/dev/null                 # SIGTERM (graceful)
+    for _ in 1 2 3 4 5 6; do                # wait up to ~3s for a clean exit
+        kill -0 "$pid" 2>/dev/null || exit 0
+        sleep 0.5
+    done
+    kill -9 "$pid" 2>/dev/null              # SIGKILL (force) if still alive
+    exit 0
+fi
+
+# Stable path to this script, so dropdown items can call back into the kill mode.
+SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+
 # ANSI Color Codes
 APPEARANCE=${OS_APPEARANCE:-${SWIFTBAR_OS_APPEARANCE:-$(defaults read -g AppleInterfaceStyle 2>/dev/null || echo "Light")}}
 if [ "$APPEARANCE" = "Dark" ]; then
@@ -43,7 +61,7 @@ fi
 
 # --- CPU & Top Processes ---
 # top -l 2 gives two samples. The second one is accurate.
-top_output=$(top -l 2 -n 5 -F -R -o cpu -stats command,cpu)
+top_output=$(top -l 2 -n 5 -F -R -o cpu -stats pid,command,cpu)
 
 # Extract CPU idle from the SECOND sample
 cpu_idle=$(echo "$top_output" | awk '/CPU usage/ {idle=$7} END {print idle}' | sed 's/%//')
@@ -52,23 +70,24 @@ cpu_usage=$(printf "%.0f" "$cpu_usage")
 
 # Extract top 5 processes from the SECOND sample
 top_processes_full=$(echo "$top_output" | awk '
-    /^COMMAND/ { block++; next }
+    /^PID/ { block++; next }
     block == 2 && count < 10 {
+        pid = $1
         cpu = $NF
-        $NF = ""
-        sub(/[ \t]+$/, "")
-        print $0 "|" cpu
+        $1 = ""; $NF = ""
+        sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "")
+        print pid "|" $0 "|" cpu
         count++
     }
 ')
 
-# Get top 5 for dropdown
-top_processes=$(echo "$top_processes_full" | head -5 | awk -F'|' '{print $1 ": " $2 "%"}')
+# Get top 5 for dropdown, carrying the PID: "pid|name: cpu%"
+top_processes=$(echo "$top_processes_full" | head -5 | awk -F'|' '{print $1 "|" $2 ": " $3 "%"}')
 
 # Get top non-kernel process for menu bar
 top_non_kernel_line=$(echo "$top_processes_full" | grep -v "kernel_task" | head -1)
-top_non_kernel=$(echo "$top_non_kernel_line" | awk -F'|' '{print $1}')
-top_non_kernel_cpu=$(echo "$top_non_kernel_line" | awk -F'|' '{print $2}')
+top_non_kernel=$(echo "$top_non_kernel_line" | awk -F'|' '{print $2}')
+top_non_kernel_cpu=$(echo "$top_non_kernel_line" | awk -F'|' '{print $3}')
 top_non_kernel_cpu_int=$(printf "%.0f" "${top_non_kernel_cpu:-0}")
 
 cpu_display="${cpu_usage}%"
@@ -211,14 +230,19 @@ echo "Ping (Mean±SD): ${ping_str} | color=primary bash=true terminal=false"
 echo "---"
 echo "Top Processes: | color=primary bash=true terminal=false"
 line_num=0
-while IFS= read -r line; do
+while IFS= read -r row; do
+    [ -z "$row" ] && continue
+    pid="${row%%|*}"
+    line="${row#*|}"
+    name="${line%%:*}"
     line_num=$((line_num + 1))
+    kill_attrs="bash=\"$SCRIPT_PATH\" param1=kill param2=$pid param3=\"$name\" terminal=false refresh=true"
     if [ "$line_num" -eq 1 ] && [ "$throttle_level" -ge 2 ]; then
         proc_name=$(echo "$line" | sed 's/: [0-9.]*%$//')
         cpu_part=$(echo "$line" | grep -o '[0-9.]*%$')
-        echo -e "${proc_name}: ${RED}${cpu_part}\033[0m | font='SF Mono' size=11 ansi=true color=primary bash=true terminal=false"
+        echo -e "${proc_name}: ${RED}${cpu_part}\033[0m | font='SF Mono' size=11 ansi=true color=primary $kill_attrs"
     else
-        echo "$line | font='SF Mono' size=11 color=primary bash=true terminal=false"
+        echo "$line | font='SF Mono' size=11 color=primary $kill_attrs"
     fi
 done <<< "$top_processes"
 echo "---"
