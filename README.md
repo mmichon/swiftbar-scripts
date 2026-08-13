@@ -10,6 +10,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - **Memory**: Displays free GB with color coding based on system pressure.
   - **CPU**: Shows usage percentage, temperature (°F via `smctemp`), and thermal throttling status (`pmset` + `powermetrics` signals on Apple Silicon); usage is colored when throttling.
   - **Top Processes**: Lists the top CPU consumers; automatically surfaces the top non-kernel process in the menu bar if CPU usage exceeds 50%. Click any process in the dropdown to kill it — a confirmation dialog appears, then SIGTERM is sent, escalating to SIGKILL if the process survives.
+  - **Sustained CPU-hog warning**: warns proactively when a process stays hot, with no banner or popup — the CPU field in the menu bar gains a ⚠, turns red, and names the culprit (`⚠41%(WeatherMenu)`), and the dropdown promotes a one-click **Kill** row plus **Ignore for 1 hour** to the top. Two tiers, because "a lot of CPU" means different things for different apps: ≥100% sustained 3 minutes (a runaway pegging a core), or ≥50% sustained 5 minutes (a background/menu-bar app that should be idle). A single tick below the threshold resets the streak, so spikes, compiles, and page loads never warn. If a process was killed by hand within the last hour it is treated as a known repeat offender and warns after just 45s, annotated `(killed 22m ago)`; a **Recently killed** section lists those. `kernel_task`, `WindowServer`, `mds*`, `backupd`, and SwiftBar/xbar itself are never flagged. Thresholds are the `HOG_*` tunables near the top of the script. This is the only stateful part of the plugin — streaks, kill history, and cooldowns live in `$TMPDIR/xbar-metrics.$UID/`. Streaks are keyed by PID and names resolved via `ps`, since `top` truncates the command column (`com.apple.weather.menu` → `com.apple.weathe`).
   - **Ping**: Monitors network latency (mean ± standard deviation) to 8.8.8.8 and 1.1.1.1.
   - **Compact UI**: Uses ANSI colors for per-metric status in a single line.
 
@@ -23,6 +24,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - Prevents system and display sleep via `pmset` as a safety net (AC power only).
   - **Leave On mode**: an optional persistent toggle that keeps the system and display awake even when no session is detected. Survives reboots/sleep-wake (flag stored in the plugin dir, not `/tmp`), keeps the local screen visible when idle (only dims while a session is actually active), and shows a filled-pin menu-bar icon.
   - **Battery/lid safeguards**: never keeps the machine awake on battery — unplugging (AC→battery) or running on battery tears down Leave On and session keep-awake, and a closed lid on battery with no session forces a full teardown so it can sleep in a bag. A closed lid on AC (clamshell with external display) is respected, so a manual "Enable CRD Mode" still sticks.
+  - **Foreign sleep-blocker detection**: shows 😴 in the menu bar plus a `Sleep blocked by: <process>` status line when another process holds a `PreventSystemSleep`/`InternalPreventSleep` assertion. Those defeat lid-close (clamshell) sleep regardless of this plugin's `pmset` state, so the machine can stay awake in a bag even with CRD mode fully off — this makes the culprit visible at a glance instead of looking like a plugin bug.
   - Logs lock state (`locked=0/1`) on every tick and alerts on lock-during-active failures.
   - Restores original brightness, sleep settings, and hot corners when the session ends.
 
@@ -40,7 +42,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 - **Features**:
   - **Profiles**: Supports "Home" (1.0) and "On-the-Go" (3.0/Fastest) speed settings.
   - **Instant Apply**: Uses a combination of `defaults` writes and a System Settings refresh to ensure hardware speed updates immediately.
-  - **Minimal UI**: Uses distinct mouse emojis (🖱️ / 🐁) to indicate the active profile in the menu bar.
+  - **Minimal UI**: Icon-only menu bar title — a `tortoise.fill` SF Symbol for Home, `hare.fill` for On-the-Go, both `template=true` so they invert with the menu bar in light/dark. The full `M:`/`T:` speeds are in the dropdown. If a symbol ever fails to resolve the item renders empty; swap the `sfimage` lines back to plain 🐢/🐇 emoji in that case.
 
 ### 5. Background Sounds (`bgs.5s.sh`)
 - **Description**: Toggle macOS Background Sounds from the menu bar.

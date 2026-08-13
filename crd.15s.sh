@@ -18,6 +18,7 @@ FLAG_DIMMED="/tmp/.crd-brightness-dimmed"
 DEFAULT_BRIGHTNESS=0.8
 HOTCORNERS_FILE="/tmp/.crd-original-hotcorners"
 FLAG_WAS_LOCKED="/tmp/.crd-was-locked"
+FLAG_BLOCKED="/tmp/.crd-foreign-blocker"
 IDLE_SINCE_FILE="/tmp/.crd-idle-since"
 LOG_FILE="$HOME/Library/Logs/crd-plugin.log"
 LOG_MAX_LINES=2000
@@ -105,6 +106,19 @@ is_on_ac_power() {
 disablesleep_active() {
     # Check actual pmset state — survives /tmp being cleared on sleep/wake
     pmset -g 2>/dev/null | grep -q 'SleepDisabled.*1'
+}
+
+foreign_sleep_blockers() {
+    # Processes holding a *hard* sleep blocker (PreventSystemSleep /
+    # InternalPreventSleep). Unlike idle assertions, these defeat lid-close
+    # (clamshell) sleep, so a foreign holder silently keeps the laptop awake in a
+    # bag even with CRD mode fully torn down and pmset clean. Returns a
+    # comma-separated list of process names, empty if none.
+    pmset -g assertions 2>/dev/null \
+        | grep -E '^[[:space:]]+pid [0-9]+\(.*(PreventSystemSleep|InternalPreventSleep) ' \
+        | sed -E 's/^[[:space:]]*pid [0-9]+\(([^)]+)\).*/\1/' \
+        | grep -v '^remoting_me2me_host$' \
+        | sort -u | paste -sd, -
 }
 
 displaysleep_disabled() {
@@ -479,9 +493,26 @@ if ! $MODE_ON && ! $CRD_ACTIVE; then
     rm -f "$IDLE_SINCE_FILE"
 fi
 
+# Foreign hard-sleep blockers: another process holding PreventSystemSleep /
+# InternalPreventSleep defeats lid-close sleep no matter how clean our own pmset
+# state is, so surface it rather than letting it look like a plugin bug.
+BLOCKERS=$(foreign_sleep_blockers)
+if [[ -n "$BLOCKERS" ]]; then
+    if [[ ! -f "$FLAG_BLOCKED" ]]; then
+        crd_log "ALERT" "Foreign sleep blocker detected — lid-close sleep prevented by: $BLOCKERS"
+        touch "$FLAG_BLOCKED"
+    fi
+elif [[ -f "$FLAG_BLOCKED" ]]; then
+    crd_log "INFO" "Foreign sleep blocker gone — lid-close sleep restored"
+    rm -f "$FLAG_BLOCKED"
+fi
+
 # --- Menu bar title ---
 
-if $LEAVE_ON; then
+if [[ -n "$BLOCKERS" ]]; then
+    # Something outside this plugin is holding the machine awake — flag it loudly
+    echo "😴 | color=red"
+elif $LEAVE_ON; then
     # Leave-on (always awake) — pin icon to distinguish from session-driven modes
     echo " | sfimage=pin.fill"
 elif $MODE_ON && ! $AUTO_MANAGED; then
@@ -522,6 +553,10 @@ fi
 
 if $LEAVE_ON; then
     echo "Mode: Leave on (always awake) | color=primary bash=true terminal=false"
+fi
+
+if [[ -n "$BLOCKERS" ]]; then
+    echo "😴 Sleep blocked by: $BLOCKERS | color=red bash=true terminal=false"
 fi
 
 if disablesleep_active; then

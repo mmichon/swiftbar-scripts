@@ -67,16 +67,22 @@ EOF
 fi
 
 # Display current status in menu bar
-# We use MOUSE_SPEED for the primary indicator
-IS_HOME=$(echo "$MOUSE_SPEED <= $HOME_SPEED" | bc -l)
+# We use MOUSE_SPEED for the primary indicator.
+# awk keeps this dependency-free; a non-numeric speed falls through to OTG rather
+# than emitting an empty status, which would render as an invisible menu bar item.
+IS_HOME=$(awk -v m="$MOUSE_SPEED" -v h="$HOME_SPEED" 'BEGIN { print (m + 0 <= h + 0) ? 1 : 0 }' 2>/dev/null)
+[ "$IS_HOME" = "1" ] || IS_HOME=0
 
+# Icon-only menu bar title. template=true lets the symbol invert with the menu bar
+# in light/dark. If a symbol ever fails to resolve the item renders empty, so swap
+# the sfimage lines back to plain 🐢/🐇 emoji if it ever goes missing.
 if [ "$IS_HOME" -eq 1 ]; then
-    echo " | sfimage=computermouse"
+    echo " | sfimage=tortoise.fill template=true"
     echo "---"
     echo "Mode: Home (M:$MOUSE_SPEED / T:$TRACKPAD_SPEED) | color=primary bash=true terminal=false"
     echo "Switch to On-the-Go (Fast: $OTG_SPEED) | bash='$0' param1=set param2=$OTG_SPEED terminal=false refresh=true color=primary"
 else
-    echo " | sfimage=computermouse.fill"
+    echo " | sfimage=hare.fill template=true"
     echo "---"
     echo "Mode: OTG (M:$MOUSE_SPEED / T:$TRACKPAD_SPEED) | color=primary bash=true terminal=false"
     echo "Switch to Home (Speed: $HOME_SPEED) | bash='$0' param1=set param2=$HOME_SPEED terminal=false refresh=true color=primary"
