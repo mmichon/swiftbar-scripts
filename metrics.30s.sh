@@ -12,10 +12,15 @@
 #   streak  - pid \t name \t tier \t first_seen \t peak_cpu   (rebuilt every tick)
 #   killed  - epoch \t name                                   (appended on kill)
 #   ignored - name \t until_epoch                             (per-process cooldown)
+#   host_streak   - pid \t first_seen \t peak_cpu             (SwiftBar spin clock)
+#   host_restarts - epoch \t peak_cpu                         (appended on auto-restart)
 STATE_DIR="${TMPDIR:-/tmp}/xbar-metrics.$(id -u)"
 STREAK_FILE="$STATE_DIR/streak"
 KILLED_FILE="$STATE_DIR/killed"
 IGNORED_FILE="$STATE_DIR/ignored"
+HOST_STREAK_FILE="$STATE_DIR/host_streak"
+HOST_RESTART_FILE="$STATE_DIR/host_restarts"
+HOST_HELPER="$STATE_DIR/restart-host.sh"
 mkdir -p "$STATE_DIR" 2>/dev/null
 
 # Tunables for the hog warning. Two tiers, because "a lot of CPU" means different
@@ -34,8 +39,26 @@ HOG_IGNORE_SEC=3600      # per-process cooldown from "Ignore for 1 hour"
 # and killing it would take the menu bar (and the warning) with it.
 HOG_EXCLUDE="kernel_task WindowServer mds mds_stores mdworker backupd top SwiftBar xbar"
 
+# Tunables for the host (SwiftBar) spin watchdog. The host stays out of the hog
+# path above -- click-to-kill must never target the app drawing this menu -- but it
+# does get its own clock, because it has a failure mode the generic check can't see:
+# menu-bar apps can fall into a self-sustaining `_activeTrackingAreasNeedUpdate ->
+# NSCursor set` run-loop cycle and hold a full core indefinitely. It costs that much
+# only when the accessibility pointer is customized (no cached cursor, so every set
+# regenerates the bitmap and re-registers it with SkyLight), which is why the warning
+# links to the Pointer pane. Restarting the host clears it; nothing else does.
+# 60, not 80: the spin measures ~82% as a true rate (CPU-time delta over 20s), but
+# top's instantaneous sample of the same spin swings between ~67% and ~110%, so a
+# bar set near the real value flaps. A healthy SwiftBar idles in low single digits,
+# so 60 is still an enormous margin, and HOST_GRACE_TICKS absorbs the odd cool tick.
+HOST_CPU_SPIN=60            # %CPU that counts as a runaway host
+HOST_GRACE_TICKS=1          # cool ticks tolerated before the clock resets
+HOST_SUSTAIN=300            # how long it must stay that hot before acting
+HOST_MIN_UPTIME=600         # ignore a host that just launched (anti restart-loop)
+HOST_RESTART_COOLDOWN=3600  # at most one auto-restart per hour
+
 # --- Kill action mode ---
-# When invoked as `metrics.15s.sh kill <pid> <name>` (from a dropdown click),
+# When invoked as `metrics.30s.sh kill <pid> <name>` (from a dropdown click),
 # confirm, then SIGTERM the process, escalating to SIGKILL if it survives.
 # The kill is recorded so a repeat offender gets flagged much faster next time.
 if [ "$1" = "kill" ]; then
@@ -52,7 +75,7 @@ if [ "$1" = "kill" ]; then
 fi
 
 # --- Ignore action mode ---
-# `metrics.15s.sh ignore <name>` silences warnings for that process for an hour.
+# `metrics.30s.sh ignore <name>` silences warnings for that process for an hour.
 if [ "$1" = "ignore" ]; then
     printf '%s\t%s\n' "$2" "$(( $(date +%s) + HOG_IGNORE_SEC ))" >> "$IGNORED_FILE"
     exit 0
@@ -248,6 +271,106 @@ else
     : > "$STREAK_FILE"
 fi
 
+# --- Host (SwiftBar) spin watchdog ---
+# Same shape as the hog clock above -- a run of consecutive hot ticks, so a spike
+# never acts -- but the remedy is a restart of the host rather than a kill, and it
+# fires on its own because a spinning menu bar is exactly the state in which nobody
+# is looking at the menu bar.
+host_pid=$(pgrep -x SwiftBar 2>/dev/null | head -1)
+[ -z "$host_pid" ] && host_pid=$(pgrep -x xbar 2>/dev/null | head -1)
+host_cpu_int=0; host_dur=0; host_peak=0; host_restart_ago=""
+
+if [ -n "$host_pid" ]; then
+    # Reuse the top sample already taken; fall back to ps for a host that somehow
+    # ranked below the 12 rows scanned.
+    host_cpu=$(awk -F'|' -v pid="$host_pid" '$1 == pid {print $3; exit}' <<< "$top_processes_full")
+    [ -z "$host_cpu" ] && host_cpu=$(ps -o %cpu= -p "$host_pid" 2>/dev/null | tr -d ' ')
+    host_cpu_int=$(printf "%.0f" "${host_cpu:-0}" 2>/dev/null)
+    [[ "$host_cpu_int" =~ ^[0-9]+$ ]] || host_cpu_int=0
+
+    h_prev_pid=""; h_since=0; h_peak=0; h_cool=0
+    if [ -f "$HOST_STREAK_FILE" ]; then
+        h_prev_pid=$(cut -f1 "$HOST_STREAK_FILE" 2>/dev/null)
+        h_since=$(cut -f2 "$HOST_STREAK_FILE" 2>/dev/null)
+        h_peak=$(cut -f3 "$HOST_STREAK_FILE" 2>/dev/null)
+        h_cool=$(cut -f4 "$HOST_STREAK_FILE" 2>/dev/null)
+    fi
+    [[ "$h_since" =~ ^[0-9]+$ ]] || h_since=0
+    [[ "$h_peak" =~ ^[0-9]+$ ]] || h_peak=0
+    [[ "$h_cool" =~ ^[0-9]+$ ]] || h_cool=0
+    # A restarted host is a new PID, which correctly starts the clock over.
+    [ "$h_prev_pid" = "$host_pid" ] || { h_since=0; h_peak=0; h_cool=0; }
+
+    if [ "$host_cpu_int" -ge "$HOST_CPU_SPIN" ]; then
+        [ "$h_since" -eq 0 ] && h_since=$now
+        h_cool=0
+        [ "$host_cpu_int" -gt "$h_peak" ] && h_peak=$host_cpu_int
+    elif [ "$h_since" -gt 0 ] && [ "$h_cool" -lt "$HOST_GRACE_TICKS" ]; then
+        h_cool=$((h_cool + 1))   # one sampling dip does not undo a long streak
+    else
+        h_since=0; h_peak=0; h_cool=0
+    fi
+
+    if [ "$h_since" -gt 0 ]; then
+        host_dur=$((now - h_since)); host_peak=$h_peak
+        printf '%s\t%s\t%s\t%s\n' "$host_pid" "$h_since" "$h_peak" "$h_cool" > "$HOST_STREAK_FILE.tmp" \
+            && mv "$HOST_STREAK_FILE.tmp" "$HOST_STREAK_FILE"
+    else
+        rm -f "$HOST_STREAK_FILE" 2>/dev/null
+    fi
+fi
+
+# Most recent auto-restart, for both the rate limit and the dropdown row.
+host_last_restart=0
+if [ -s "$HOST_RESTART_FILE" ]; then
+    host_last_restart=$(awk -F'\t' 'END {print $1}' "$HOST_RESTART_FILE" 2>/dev/null)
+    [[ "$host_last_restart" =~ ^[0-9]+$ ]] || host_last_restart=0
+    # Keep a week of history; this file is also the "why did my menu bar blink" log.
+    awk -F'\t' -v cut=$((now - 604800)) '$1 >= cut' "$HOST_RESTART_FILE" > "$HOST_RESTART_FILE.tmp" 2>/dev/null \
+        && mv "$HOST_RESTART_FILE.tmp" "$HOST_RESTART_FILE"
+fi
+[ "$host_last_restart" -gt 0 ] && [ $((now - host_last_restart)) -lt "$HOST_RESTART_COOLDOWN" ] \
+    && host_restart_ago=$((now - host_last_restart))
+
+if [ -n "$host_pid" ] && [ "$host_dur" -ge "$HOST_SUSTAIN" ] && [ -z "$host_restart_ago" ]; then
+    # macOS ps has no `etimes`; parse `etime` ([[dd-]hh:]mm:ss) into seconds.
+    host_uptime=$(ps -o etime= -p "$host_pid" 2>/dev/null | awk '{
+        t = $1; d = 0
+        if (split(t, a, "-") == 2) { d = a[1]; t = a[2] }
+        n = split(t, b, ":")
+        if (n == 3)      s = b[1] * 3600 + b[2] * 60 + b[3]
+        else if (n == 2) s = b[1] * 60 + b[2]
+        else             s = b[1]
+        print d * 86400 + s
+    }')
+    [[ "$host_uptime" =~ ^[0-9]+$ ]] || host_uptime=0
+    if [ "$host_uptime" -ge "$HOST_MIN_UPTIME" ]; then
+        # This script is a child of the host, so it cannot outlive the app it is
+        # about to quit: hand the job to a detached helper and let this tick end.
+        cat > "$HOST_HELPER" <<'HELPER'
+#!/bin/bash
+# Written by metrics -- restarts the SwiftBar host after a sustained CPU spin.
+# Runs detached, because its parent dies partway through by design.
+sleep 1
+osascript -e 'quit app "SwiftBar"' >/dev/null 2>&1
+for _ in $(seq 1 20); do          # up to 10s for a clean quit
+    pgrep -x SwiftBar >/dev/null 2>&1 || break
+    sleep 0.5
+done
+pgrep -x SwiftBar >/dev/null 2>&1 && pkill -x SwiftBar 2>/dev/null
+sleep 2
+open -a SwiftBar
+HELPER
+        chmod +x "$HOST_HELPER" 2>/dev/null
+        # Record before spawning: this tick is about to be killed mid-flight, and a
+        # restart that never made it into the log would defeat the rate limit.
+        printf '%s\t%s\n' "$now" "$host_peak" >> "$HOST_RESTART_FILE"
+        host_restart_ago=0
+        nohup /bin/bash "$HOST_HELPER" >/dev/null 2>&1 &
+        disown 2>/dev/null || true
+    fi
+fi
+
 # --- Thermal / Throttle Detection ---
 # Combine multiple signals into throttle_level: 0=none, 1=moderate, 2=serious.
 # Each signal can only raise the level, never lower it (logical OR / max).
@@ -359,6 +482,23 @@ BAR_PING="${ping_str}"
 
 echo -e "${BAR_MEM} ${BAR_CPU} ${BAR_PING} | ansi=true font='SF Mono' size=12 color=primary"
 echo "---"
+# Host watchdog block, above everything: when the menu bar itself is spinning, that
+# is the thing worth reading first.
+if [ -n "$host_restart_ago" ] || [ "$host_dur" -gt 0 ]; then
+    if [ -n "$host_restart_ago" ]; then
+        echo -e "${RED}↻ SwiftBar auto-restarted $(fmt_dur "$host_restart_ago") ago (runaway cursor loop)${P_ANSI} | ansi=true font='SF Mono' size=12 color=primary bash=true terminal=false"
+    else
+        echo -e "${RED}⚠ SwiftBar spinning: ${host_cpu_int}% for $(fmt_dur "$host_dur")${P_ANSI} | ansi=true font='SF Mono' size=12 color=primary bash=true terminal=false"
+    fi
+    # Root cause, when it is the one we know about: a customized accessibility
+    # pointer makes every NSCursor set regenerate the cursor bitmap, which turns a
+    # normally-invisible run-loop cycle into a full core -- in every menu-bar app,
+    # not just this one. Resetting the pointer colors is the actual fix.
+    if [ "$(defaults read com.apple.universalaccess cursorIsCustomized 2>/dev/null)" = "1" ]; then
+        echo "Custom pointer causes menu-bar CPU spins — reset it | size=12 color=primary href='x-apple.systempreferences:com.apple.preference.universalaccess?Seeing_Display'"
+    fi
+    echo "---"
+fi
 # Warning block, promoted to the top so the fix is one click from the glance.
 if [ -n "$hog_name" ]; then
     hog_when=$(fmt_dur "$hog_dur")

@@ -4,13 +4,14 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 
 ## Active Plugins
 
-### 1. System Metrics (`metrics.15s.sh`)
+### 1. System Metrics (`metrics.30s.sh`)
 - **Description**: A combined monitor for Memory, CPU, and Network latency.
 - **Features**:
   - **Memory**: Displays free GB with color coding based on system pressure.
   - **CPU**: Shows usage percentage, temperature (°F via `smctemp`), and thermal throttling status (`pmset` + `powermetrics` signals on Apple Silicon); usage is colored when throttling.
   - **Top Processes**: Lists the top CPU consumers; automatically surfaces the top non-kernel process in the menu bar if CPU usage exceeds 50%. Click any process in the dropdown to kill it — a confirmation dialog appears, then SIGTERM is sent, escalating to SIGKILL if the process survives.
   - **Sustained CPU-hog warning**: warns proactively when a process stays hot, with no banner or popup — the CPU field in the menu bar gains a ⚠, turns red, and names the culprit (`⚠41%(WeatherMenu)`), and the dropdown promotes a one-click **Kill** row plus **Ignore for 1 hour** to the top. Two tiers, because "a lot of CPU" means different things for different apps: ≥100% sustained 3 minutes (a runaway pegging a core), or ≥50% sustained 5 minutes (a background/menu-bar app that should be idle). A single tick below the threshold resets the streak, so spikes, compiles, and page loads never warn. If a process was killed by hand within the last hour it is treated as a known repeat offender and warns after just 45s, annotated `(killed 22m ago)`; a **Recently killed** section lists those. `kernel_task`, `WindowServer`, `mds*`, `backupd`, and SwiftBar/xbar itself are never flagged. Thresholds are the `HOG_*` tunables near the top of the script. This is the only stateful part of the plugin — streaks, kill history, and cooldowns live in `$TMPDIR/xbar-metrics.$UID/`. Streaks are keyed by PID and names resolved via `ps`, since `top` truncates the command column (`com.apple.weather.menu` → `com.apple.weathe`).
+  - **SwiftBar spin watchdog**: the host app is excluded from the hog check above (click-to-kill must never target the app drawing the menu), so it gets its own clock and its own remedy. Menu-bar apps can fall into a self-sustaining `_activeTrackingAreasNeedUpdate → NSCursor set` run-loop cycle and hold a full core indefinitely — SwiftBar, Apple's own weather extra, and WindowServer all at once. If SwiftBar stays ≥60% CPU for 5 minutes (and has been up 10 minutes, so a restart loop is impossible), the plugin **auto-restarts it**, at most once per hour, via a detached helper that outlives the quit; the dropdown then shows `↻ SwiftBar auto-restarted 12m ago` for the rest of the cooldown, and the restart log lives in `$TMPDIR/xbar-metrics.$UID/host_restarts`. One cool tick of grace absorbs `top`'s sampling swings without losing a long streak. The real cause is a **customized accessibility pointer**: with custom fill/outline colors there is no cached cursor, so every `NSCursor set` regenerates the bitmap through `_AXFMouseCursorGenerator` and re-registers it with SkyLight, turning an invisible cycle into a full core. Whenever `cursorIsCustomized` is set, the warning adds a row linking straight to the Pointer pane — resetting those colors is the actual fix; the restart only buys time. Tunables are the `HOST_*` group near the top of the script.
   - **Ping**: Monitors network latency (mean ± standard deviation) to 8.8.8.8 and 1.1.1.1.
   - **Compact UI**: Uses ANSI colors for per-metric status in a single line.
 
@@ -37,11 +38,12 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - Automatically triggers iPad Sidecar connection via a Shortcuts shortcut if the iPad isn't already connected.
   - Menu bar icon reflects the current display mode (🖥️ / 📱 / 💻).
 
-### 4. Mouse Speed Switcher (`mouse_speed.15s.sh`)
+### 4. Mouse Speed Switcher (`mouse_speed.300s.sh`)
 - **Description**: Quickly toggle between different mouse tracking speed profiles.
 - **Features**:
   - **Profiles**: Supports "Home" (1.0) and "On-the-Go" (3.0/Fastest) speed settings.
   - **Instant Apply**: Uses a combination of `defaults` writes and a System Settings refresh to ensure hardware speed updates immediately.
+  - **Refresh interval**: 5 minutes, not seconds. The speed only ever changes through this plugin's own click action, and that action already carries `refresh=true`, so polling faster just makes SwiftBar rebuild a status item that cannot have changed.
   - **Minimal UI**: Icon-only menu bar title — a `tortoise.fill` SF Symbol for Home, `hare.fill` for On-the-Go, both `template=true` so they invert with the menu bar in light/dark. The full `M:`/`T:` speeds are in the dropdown. If a symbol ever fails to resolve the item renders empty; swap the `sfimage` lines back to plain 🐢/🐇 emoji in that case.
 
 ### 5. Background Sounds (`bgs.5s.sh`)
