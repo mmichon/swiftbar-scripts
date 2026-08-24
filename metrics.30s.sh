@@ -119,6 +119,46 @@ elif [ "$pressure_level" -eq 2 ]; then
     mem_ansi=$YELLOW
 fi
 
+# Top memory-consuming process. Unlike CPU, RSS is a point-in-time value, so a
+# single sample is enough -- no delta needed. Scan 10 deep so there's a real
+# candidate left after excluding the ever-present, never-interesting names:
+# WindowServer is system chrome (no relation to killing it being useful), and
+# Chrome itself is normally the single biggest memory user on this machine but
+# never the one worth flagging -- its helpers are supposed to hold a lot of RAM.
+MEM_EXCLUDE="kernel_task WindowServer"
+top_mem_output=$(top -l 1 -n 10 -o mem -stats pid,command,mem)
+top_mem_candidates=$(echo "$top_mem_output" | awk '
+    /^PID/ { block=1; next }
+    block && count < 10 {
+        pid=$1; mem=$NF
+        $1=""; $NF=""
+        sub(/^[ \t]+/,""); sub(/[ \t]+$/,"")
+        print pid "|" $0 "|" mem
+        count++
+    }
+')
+top_mem_pid=""; top_mem_name=""; top_mem_val=""
+while IFS='|' read -r c_pid c_name c_mem; do
+    [ -z "$c_pid" ] && continue
+    # top truncates long command names (see the CPU hog section below for the
+    # same problem), so resolve the real name for exclusion, display, and kill.
+    real_name=$(ps -p "$c_pid" -o comm= 2>/dev/null)
+    real_name="${real_name##*/}"
+    [ -z "$real_name" ] && real_name="$c_name"
+
+    excluded=0
+    for ex in $MEM_EXCLUDE; do
+        [ "$real_name" = "$ex" ] && excluded=1 && break
+    done
+    case "$real_name" in
+        "Google Chrome"*|com.google.Chrome*) excluded=1 ;;
+    esac
+    [ "$excluded" -eq 1 ] && continue
+
+    top_mem_pid=$c_pid; top_mem_name=$real_name; top_mem_val=$c_mem
+    break
+done <<< "$top_mem_candidates"
+
 # --- CPU & Top Processes ---
 # top -l 2 gives two samples. The second one is accurate.
 # Scan 12 deep, not 5: the dropdown only shows 5, but a tier-2 offender sitting at
@@ -514,6 +554,10 @@ fi
 echo "${free_mem_gb}GB ${cpu_display} ${ping_str} | font='SF Mono' size=12 color=primary bash=true terminal=false"
 echo "---"
 echo "Memory Free: ${free_mem_gb}GB | color=primary bash=true terminal=false"
+if [ -n "$top_mem_name" ]; then
+    top_mem_kill_attrs="bash=\"$SCRIPT_PATH\" param1=kill param2=$top_mem_pid param3=\"$top_mem_name\" terminal=false refresh=true"
+    echo "Top Memory: ${top_mem_name} (${top_mem_val}) | font='SF Mono' size=12 color=primary $top_mem_kill_attrs"
+fi
 if [ -n "$cpu_ansi" ]; then
     echo -e "CPU Usage: ${cpu_ansi}${cpu_usage}%${P_ANSI} | ansi=true color=primary bash=true terminal=false"
 else
