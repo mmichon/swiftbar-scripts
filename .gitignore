@@ -4,3 +4,4 @@ mtop.debug
 AGENTS.md
 .claude/
 __pycache__/
+.crd-leave-on

@@ -59,18 +59,22 @@ HOST_RESTART_COOLDOWN=3600  # at most one auto-restart per hour
 
 # --- Kill action mode ---
 # When invoked as `metrics.30s.sh kill <pid> <name>` (from a dropdown click),
-# confirm, then SIGTERM the process, escalating to SIGKILL if it survives.
+# confirm, then SIGKILL the process: the things this menu targets are runaway
+# hogs, and some of them trap or ignore SIGTERM, so a graceful signal makes the
+# click feel unreliable. -9 always wins, immediately.
 # The kill is recorded so a repeat offender gets flagged much faster next time.
 if [ "$1" = "kill" ]; then
     pid="$2"; name="$3"
     osascript -e "display dialog \"Kill ${name} (PID ${pid})?\" buttons {\"Cancel\",\"Kill\"} default button \"Cancel\" with icon caution" >/dev/null 2>&1 || exit 0
     printf '%s\t%s\n' "$(date +%s)" "$name" >> "$KILLED_FILE"
-    kill "$pid" 2>/dev/null                 # SIGTERM (graceful)
-    for _ in 1 2 3 4 5 6; do                # wait up to ~3s for a clean exit
-        kill -0 "$pid" 2>/dev/null || exit 0
-        sleep 0.5
+    kill -9 "$pid" 2>/dev/null              # SIGKILL -- always, so it dies predictably
+    for _ in 1 2 3 4 5; do                  # let it finish dying before we redraw
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.2
     done
-    kill -9 "$pid" 2>/dev/null              # SIGKILL (force) if still alive
+    # Redraw now rather than waiting out the tick. refresh=true on the menu item
+    # fires too early (this script is still running), so trigger the host directly.
+    open -g "swiftbar://refreshplugin?name=$(basename "$0" | cut -d. -f1)" >/dev/null 2>&1
     exit 0
 fi
 
