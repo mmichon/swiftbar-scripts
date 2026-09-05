@@ -114,10 +114,40 @@ foreign_sleep_blockers() {
     # (clamshell) sleep, so a foreign holder silently keeps the laptop awake in a
     # bag even with CRD mode fully torn down and pmset clean. Returns a
     # comma-separated list of process names, empty if none.
+    #
+    # A bare holder name is often useless: caffeinate is a generic wrapper, so
+    # "blocked by: caffeinate" says nothing about what to stop or wait for. When
+    # the holder declares a beneficiary on the Details: line immediately below
+    # its assertion, report "holder→beneficiary" instead:
+    #
+    #   pid 33006(caffeinate): [...] PreventSystemSleep named: "caffeinate ..."
+    #   \tDetails: caffeinate asserting on behalf of 'osxphotos' (pid 33004)
+    #
+    # yields "caffeinate→osxphotos". Only the *next* line belongs to a given
+    # assertion, so a pending holder is flushed bare on any other line.
     pmset -g assertions 2>/dev/null \
-        | grep -E '^[[:space:]]+pid [0-9]+\(.*(PreventSystemSleep|InternalPreventSleep) ' \
-        | sed -E 's/^[[:space:]]*pid [0-9]+\(([^)]+)\).*/\1/' \
-        | grep -v '^remoting_me2me_host$' \
+        | awk '
+            function flush() { if (pending != "") { print pending; pending = "" } }
+            /^[[:space:]]+pid [0-9]+\(.*(PreventSystemSleep|InternalPreventSleep) / {
+                flush()
+                name = $0
+                sub(/^[[:space:]]*pid [0-9]+\(/, "", name)
+                sub(/\).*$/, "", name)
+                pending = name
+                next
+            }
+            pending != "" && match($0, /asserting on behalf of '"'"'[^'"'"']+'"'"'/) {
+                behalf = substr($0, RSTART, RLENGTH)
+                sub(/^asserting on behalf of '"'"'/, "", behalf)
+                sub(/'"'"'$/, "", behalf)
+                print pending "→" behalf
+                pending = ""
+                next
+            }
+            { flush() }
+            END { flush() }
+        ' \
+        | grep -v '^remoting_me2me_host\(→\|$\)' \
         | sort -u | paste -sd, -
 }
 

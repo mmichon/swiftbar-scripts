@@ -23,6 +23,28 @@ HOST_RESTART_FILE="$STATE_DIR/host_restarts"
 HOST_HELPER="$STATE_DIR/restart-host.sh"
 mkdir -p "$STATE_DIR" 2>/dev/null
 
+# Everything above lives in $TMPDIR, which macOS wipes at every reboot -- fine for
+# streaks and cooldowns, useless for a death log. The record of why the menu bar
+# keeps disappearing has to outlive both reboots and macOS's own crash-report
+# rotation, so it gets a persistent home of its own.
+#   host_deaths  - epoch \t kind \t detail \t lifetime_sec \t app_version
+#   host_seen    - pid \t launch_epoch \t last_tick_epoch   (rewritten every tick)
+#   last_harvest - mtime stamp bounding the .ips scan
+PERSIST_DIR="$HOME/Library/Application Support/xbar-metrics"
+DEATH_FILE="$PERSIST_DIR/host_deaths"
+SEEN_FILE="$PERSIST_DIR/host_seen"
+HARVEST_STAMP="$PERSIST_DIR/last_harvest"
+mkdir -p "$PERSIST_DIR" 2>/dev/null
+
+# Where macOS drops crash reports. SwiftBar's are moved into Retired/ within the
+# hour and purged from there soon after, so both directories have to be scanned:
+# the top level alone loses anything older than that, Retired/ alone misses the
+# fresh one.
+CRASH_DIRS=("$HOME/Library/Logs/DiagnosticReports" "$HOME/Library/Logs/DiagnosticReports/Retired")
+DEATH_KEEP=7776000     # 90 days of history -- the point is measuring a rate
+DEATH_WINDOW=604800    # dropdown counts deaths over the last 7 days
+DEATH_LIST_MAX=8       # most recent N listed in the submenu
+
 # Tunables for the hog warning. Two tiers, because "a lot of CPU" means different
 # things for different apps: a compiler at 300% for a minute is fine, a menu-bar
 # widget holding half a core for five minutes is not. A single tick below the
@@ -225,6 +247,40 @@ fmt_dur() {
     else printf '%ds' "$1"; fi
 }
 
+# macOS ps has no `etimes`; parse `etime` ([[dd-]hh:]mm:ss) into seconds. Used by
+# the spin watchdog's anti-restart-loop guard and by the death ledger, which needs
+# a launch time to tell one host process from the next.
+proc_uptime_secs() {
+    local s
+    s=$(ps -o etime= -p "$1" 2>/dev/null | awk '{
+        t = $1; d = 0
+        if (split(t, a, "-") == 2) { d = a[1]; t = a[2] }
+        n = split(t, b, ":")
+        if (n == 3)      s = b[1] * 3600 + b[2] * 60 + b[3]
+        else if (n == 2) s = b[1] * 60 + b[2]
+        else             s = b[1]
+        print d * 86400 + s
+    }')
+    [[ "$s" =~ ^[0-9]+$ ]] || s=0
+    printf '%s' "$s"
+}
+
+# PID of the host app. `pgrep -x SwiftBar` is the obvious call and is what this
+# used to do, but it returns nothing when the caller is itself a child of SwiftBar
+# -- which is every real tick -- so the spin watchdog below silently never saw a
+# host and could never fire. Matching the basename of `ps -axo comm=` works from
+# inside the plugin, where it actually matters.
+host_pid_of() {
+    ps -axo pid=,comm= 2>/dev/null | awk -v n="$1" '
+        {
+            pid = $1
+            cmd = $0
+            sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", cmd)
+            sub(/.*\//, "", cmd)
+            if (cmd == n) { print pid; exit }
+        }'
+}
+
 hog_name=""; hog_pid=""; hog_cpu=0; hog_dur=0; hog_tier=""; hog_killed_ago=""
 hog_best=-1
 streak_rows=()
@@ -320,8 +376,8 @@ fi
 # never acts -- but the remedy is a restart of the host rather than a kill, and it
 # fires on its own because a spinning menu bar is exactly the state in which nobody
 # is looking at the menu bar.
-host_pid=$(pgrep -x SwiftBar 2>/dev/null | head -1)
-[ -z "$host_pid" ] && host_pid=$(pgrep -x xbar 2>/dev/null | head -1)
+host_pid=$(host_pid_of SwiftBar)
+[ -z "$host_pid" ] && host_pid=$(host_pid_of xbar)
 host_cpu_int=0; host_dur=0; host_peak=0; host_restart_ago=""
 
 if [ -n "$host_pid" ]; then
@@ -377,17 +433,7 @@ fi
     && host_restart_ago=$((now - host_last_restart))
 
 if [ -n "$host_pid" ] && [ "$host_dur" -ge "$HOST_SUSTAIN" ] && [ -z "$host_restart_ago" ]; then
-    # macOS ps has no `etimes`; parse `etime` ([[dd-]hh:]mm:ss) into seconds.
-    host_uptime=$(ps -o etime= -p "$host_pid" 2>/dev/null | awk '{
-        t = $1; d = 0
-        if (split(t, a, "-") == 2) { d = a[1]; t = a[2] }
-        n = split(t, b, ":")
-        if (n == 3)      s = b[1] * 3600 + b[2] * 60 + b[3]
-        else if (n == 2) s = b[1] * 60 + b[2]
-        else             s = b[1]
-        print d * 86400 + s
-    }')
-    [[ "$host_uptime" =~ ^[0-9]+$ ]] || host_uptime=0
+    host_uptime=$(proc_uptime_secs "$host_pid")
     if [ "$host_uptime" -ge "$HOST_MIN_UPTIME" ]; then
         # This script is a child of the host, so it cannot outlive the app it is
         # about to quit: hand the job to a detached helper and let this tick end.
@@ -395,13 +441,16 @@ if [ -n "$host_pid" ] && [ "$host_dur" -ge "$HOST_SUSTAIN" ] && [ -z "$host_rest
 #!/bin/bash
 # Written by metrics -- restarts the SwiftBar host after a sustained CPU spin.
 # Runs detached, because its parent dies partway through by design.
+# Same pgrep blind spot as the plugin: this helper is a descendant of SwiftBar, so
+# `pgrep -x SwiftBar` reports nothing and the force-kill below would be skipped.
+still_running() { ps -axo comm= 2>/dev/null | sed 's|.*/||' | grep -qx SwiftBar; }
 sleep 1
 osascript -e 'quit app "SwiftBar"' >/dev/null 2>&1
 for _ in $(seq 1 20); do          # up to 10s for a clean quit
-    pgrep -x SwiftBar >/dev/null 2>&1 || break
+    still_running || break
     sleep 0.5
 done
-pgrep -x SwiftBar >/dev/null 2>&1 && pkill -x SwiftBar 2>/dev/null
+still_running && pkill -x SwiftBar 2>/dev/null
 sleep 2
 open -a SwiftBar
 HELPER
@@ -413,6 +462,121 @@ HELPER
         nohup /bin/bash "$HOST_HELPER" >/dev/null 2>&1 &
         disown 2>/dev/null || true
     fi
+fi
+
+# --- Host death ledger ---
+# The spin watchdog above handles a host that is too busy; this handles one that is
+# simply gone. SwiftBar crashes do leave an .ips in DiagnosticReports, but macOS
+# retires those within the hour and purges Retired/ soon after -- so each death
+# erases the evidence of the last one, and "it keeps dying" becomes unanswerable.
+# This harvests reports into a durable log before they vanish, and separately
+# notices a changed host PID so deaths that leave no report at all still get counted.
+#
+# Necessarily retroactive: this runs inside a SwiftBar plugin, so a death is recorded
+# on the first tick after the host is back, not while it is down.
+death_count=0; death_last=0; death_last_detail=""
+
+# Epochs already logged. The same crash is seen once in DiagnosticReports and again
+# after it moves to Retired/, so the epoch is the dedupe key.
+death_seen_epochs=""
+if [ -s "$DEATH_FILE" ]; then
+    awk -F'\t' -v cut=$((now - DEATH_KEEP)) '$1 >= cut' "$DEATH_FILE" > "$DEATH_FILE.tmp" 2>/dev/null \
+        && mv "$DEATH_FILE.tmp" "$DEATH_FILE"
+    death_seen_epochs=$(cut -f1 "$DEATH_FILE" 2>/dev/null)
+fi
+
+# Parse one .ips. Everything needed sits in the first 50 lines (header JSON on line
+# 1, then captureTime/procLaunch/exception/asi), so this never touches the ~180
+# lines of thread dumps below. grep/sed only -- jq is not a dependency of this plugin.
+harvest_report() {
+    local f="$1" hdr ts epoch ver launch launch_epoch life exc sig cause detail
+    hdr=$(head -1 "$f" 2>/dev/null)
+    ts=$(sed -n 's/.*"timestamp":"\([^"]*\)".*/\1/p' <<< "$hdr")
+    [ -z "$ts" ] && return 0
+    # "2026-09-05 10:41:59.00 -0700" -> epoch; drop the fractional seconds that
+    # date -j cannot parse.
+    epoch=$(date -j -f '%Y-%m-%d %H:%M:%S %z' "$(sed -E 's/\.[0-9]+ / /' <<< "$ts")" '+%s' 2>/dev/null)
+    [[ "$epoch" =~ ^[0-9]+$ ]] || return 0
+    grep -qx "$epoch" <<< "$death_seen_epochs" && return 0
+
+    ver=$(sed -n 's/.*"app_version":"\([^"]*\)".*/\1/p' <<< "$hdr")
+    launch=$(head -50 "$f" 2>/dev/null | sed -n 's/.*"procLaunch" : "\([^"]*\)".*/\1/p' | head -1)
+    launch_epoch=$(date -j -f '%Y-%m-%d %H:%M:%S %z' "$(sed -E 's/\.[0-9]+ / /' <<< "$launch")" '+%s' 2>/dev/null)
+    life=0
+    [[ "$launch_epoch" =~ ^[0-9]+$ ]] && [ "$epoch" -gt "$launch_epoch" ] && life=$((epoch - launch_epoch))
+
+    exc=$(head -50 "$f" 2>/dev/null | grep -m1 '"exception"')
+    sig=$(sed -n 's/.*"signal":"\([^"]*\)".*/\1/p' <<< "$exc")
+    [ -z "$sig" ] && sig=$(sed -n 's/.*"type":"\([^"]*\)".*/\1/p' <<< "$exc")
+    # asi carries the human-readable reason when there is one ("BUG IN CLIENT OF
+    # LIBMALLOC: memory corruption of free block") -- the half worth reading.
+    cause=$(head -50 "$f" 2>/dev/null | sed -n 's/.*"asi" : {[^[]*\["\([^"]*\)".*/\1/p' | head -1)
+    detail="${sig:-unknown}"
+    [ -n "$cause" ] && detail="$detail: $cause"
+    detail=$(tr '\t' ' ' <<< "$detail")   # tabs are the field separator
+
+    printf '%s\t%s\t%s\t%s\t%s\n' "$epoch" "crash" "$detail" "$life" "${ver:-?}" >> "$DEATH_FILE"
+    death_seen_epochs="$death_seen_epochs
+$epoch"
+}
+
+# Only reports touched since the last scan; steady state is one find matching nothing.
+# A report keeps its mtime when macOS moves it to Retired/, so the move alone does
+# not make it look new -- and the epoch dedupe covers it if it ever did.
+harvest_args=()
+[ -f "$HARVEST_STAMP" ] && harvest_args=(-newer "$HARVEST_STAMP")
+while IFS= read -r rpt; do
+    [ -n "$rpt" ] && harvest_report "$rpt"
+done < <(find "${CRASH_DIRS[@]}" -maxdepth 1 -name 'SwiftBar-*.ips' "${harvest_args[@]}" 2>/dev/null)
+touch "$HARVEST_STAMP" 2>/dev/null
+
+# A death that leaves no report -- a clean quit, a hang killed by hand, the spin
+# watchdog above, a logout -- shows up only as a changed host PID.
+seen_pid=""; seen_launch=0; seen_tick=0
+if [ -f "$SEEN_FILE" ]; then
+    seen_pid=$(cut -f1 "$SEEN_FILE" 2>/dev/null)
+    seen_launch=$(cut -f2 "$SEEN_FILE" 2>/dev/null)
+    seen_tick=$(cut -f3 "$SEEN_FILE" 2>/dev/null)
+fi
+[[ "$seen_launch" =~ ^[0-9]+$ ]] || seen_launch=0
+[[ "$seen_tick" =~ ^[0-9]+$ ]] || seen_tick=0
+
+if [ -n "$host_pid" ]; then
+    host_launch=$((now - $(proc_uptime_secs "$host_pid")))
+    if [ -n "$seen_pid" ] && [ "$seen_pid" != "$host_pid" ] && [ "$seen_tick" -gt 0 ]; then
+        # The old host died between its last tick and now. If a crash row already
+        # covers that window it is the same event, not a second one; the 120s slack
+        # absorbs the lag between the crash and the report being written.
+        if ! awk -F'\t' -v a=$((seen_tick - 120)) -v b="$now" \
+                '$2 == "crash" && $1 >= a && $1 <= b {found=1} END {exit !found}' \
+                "$DEATH_FILE" 2>/dev/null; then
+            # The watchdog logs its own restarts; label those rather than filing them
+            # as unexplained deaths.
+            death_kind="exit"
+            awk -F'\t' -v a=$((seen_tick - 120)) -v b="$now" \
+                '$1 >= a && $1 <= b {found=1} END {exit !found}' \
+                "$HOST_RESTART_FILE" 2>/dev/null && death_kind="watchdog"
+            death_life=0
+            [ "$seen_launch" -gt 0 ] && [ "$seen_tick" -gt "$seen_launch" ] \
+                && death_life=$((seen_tick - seen_launch))
+            printf '%s\t%s\t%s\t%s\t%s\n' "$seen_tick" "$death_kind" \
+                "no crash report (died within $(fmt_dur $((now - seen_tick))) of last tick)" \
+                "$death_life" "?" >> "$DEATH_FILE"
+        fi
+    fi
+    printf '%s\t%s\t%s\n' "$host_pid" "$host_launch" "$now" > "$SEEN_FILE.tmp" 2>/dev/null \
+        && mv "$SEEN_FILE.tmp" "$SEEN_FILE"
+fi
+
+# Summary for the dropdown. Rows are appended in discovery order, not time order --
+# a harvested crash can predate an exit already logged -- so pick the max by epoch
+# rather than trusting the last line.
+if [ -s "$DEATH_FILE" ]; then
+    death_count=$(awk -F'\t' -v cut=$((now - DEATH_WINDOW)) '$1 >= cut' "$DEATH_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    IFS=$'\t' read -r death_last death_last_detail < <(
+        awk -F'\t' '$1+0 > m {m = $1+0; d = $3} END {printf "%d\t%s\n", m, d}' "$DEATH_FILE" 2>/dev/null)
+    [[ "$death_count" =~ ^[0-9]+$ ]] || death_count=0
+    [[ "$death_last" =~ ^[0-9]+$ ]] || death_last=0
 fi
 
 # --- Thermal / Throttle Detection ---
@@ -541,6 +705,24 @@ if [ -n "$host_restart_ago" ] || [ "$host_dur" -gt 0 ]; then
     if [ "$(defaults read com.apple.universalaccess cursorIsCustomized 2>/dev/null)" = "1" ]; then
         echo "Custom pointer causes menu-bar CPU spins — reset it | size=12 color=primary href='x-apple.systempreferences:com.apple.preference.universalaccess?Seeing_Display'"
     fi
+    echo "---"
+fi
+
+# How often the menu bar has actually vanished. Silent while it is behaving, which
+# is the normal case -- this row only appears once there is something to answer for.
+if [ "$death_count" -gt 0 ]; then
+    echo -e "${RED}✕ SwiftBar died ${death_count}× in 7d — last $(fmt_dur $((now - death_last))) ago${P_ANSI} | ansi=true font='SF Mono' size=12 color=primary"
+    [ -n "$death_last_detail" ] && echo "--${death_last_detail} | font='SF Mono' size=11 color=primary"
+    echo "-----"
+    # Newest first, so the submenu reads as a history.
+    while IFS=$'\t' read -r d_epoch d_kind d_detail d_life d_ver; do
+        [[ "$d_epoch" =~ ^[0-9]+$ ]] || continue
+        echo "--$(fmt_dur $((now - d_epoch))) ago · ${d_kind} · up $(fmt_dur "${d_life:-0}") · v${d_ver:-?} | font='SF Mono' size=12 color=primary"
+    done < <(sort -t$'\t' -k1,1nr "$DEATH_FILE" 2>/dev/null | head -"$DEATH_LIST_MAX")
+    echo "-----"
+    # href, not bash=: the log lives under "Application Support", and a percent-
+    # encoded file URL sidesteps quoting a path with a space in it.
+    echo "--Reveal death log | size=12 color=primary href=file://${PERSIST_DIR// /%20}/"
     echo "---"
 fi
 # Warning block, promoted to the top so the fix is one click from the glance.
