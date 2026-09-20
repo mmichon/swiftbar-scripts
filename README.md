@@ -53,6 +53,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - Detects whether the `heard` daemon is playing by inspecting its open `.m4a` files.
   - Shows the current sound name when active.
   - On/off actions invoke the "Background sounds On" / "Background sounds Off" Shortcuts.
+  - **Self-guarding**: `lsof` walks the whole open-file table and blocks for as long as an unreachable SMB mount takes to time out. Since SwiftBar re-fires a plugin every interval whether or not the last run returned, a stalled probe used to queue a dozen invocations that then completed in the same millisecond — enough concurrent teardown on one `NSOperationQueue` to corrupt SwiftBar's heap and crash the host. A single-instance lock now prevents any backlog, a 3s watchdog bounds `lsof` itself, and a timed-out probe replays the last answer rather than falsely reporting "Off".
 
 ### 6. Desktop Space Indicator (`space.1s.sh`)
 - **Description**: Shows the current macOS Desktop Space number in the menu bar, with a per-space summary of what's running in the dropdown.
@@ -65,6 +66,24 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - Compiles the inline Swift to a cached binary, recompiling only when the script changes (~20ms/tick vs ~750ms to JIT each tick).
   - **Self-guarding**: a single-instance lock plus a watchdog keep a stalled WindowServer call (during sleep/wake, lock, or fast user switching) from piling 1s ticks into stuck processes — new ticks skip while a run is active, and a wedged run is bounded and killed.
   - Refreshes every second for near-live tracking as you switch spaces.
+
+## Host Watchdog (`.swiftbar-watchdog.sh`)
+
+SwiftBar is a login item, not a launchd job, so nothing relaunches it when it dies. `metrics.30s.sh` restarts a host that is *spinning*, but it cannot notice one that is *gone* — it runs inside SwiftBar, so its ticks stop the instant the host does. The death ledger showed what that cost: a SIGSEGV on 2026-09-20 left the menu bar empty for 3h47m, and a 2026-09-09 death went 116h before the next tick.
+
+This closes the hole from outside the process. A launchd job polls every 60s and relaunches SwiftBar only when it is absent — deliberately *not* `KeepAlive` on SwiftBar itself, which would make launchd own the process and race the login item into two instances. Measured recovery is ~64s.
+
+Install:
+```
+cp .swiftbar-watchdog.plist ~/Library/LaunchAgents/com.mmichon.swiftbar-watchdog.plist
+launchctl load -w ~/Library/LaunchAgents/com.mmichon.swiftbar-watchdog.plist
+```
+
+To stop it resurrecting an intentional quit, without unloading the job:
+```
+touch ~/Library/Application\ Support/xbar-metrics/watchdog_paused
+```
+Remove that file to resume. Relaunches are logged to `~/Library/Application Support/xbar-metrics/watchdog_log`.
 
 ## Installation
 

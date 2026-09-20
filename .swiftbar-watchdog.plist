@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mmichon.swiftbar-watchdog</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/mmichon/Library/Application Support/xbar/plugins/.swiftbar-watchdog.sh</string>
+    </array>
+
+    <!-- Poll for absence rather than KeepAlive on SwiftBar itself: launchd
+         owning the process would race the existing login item into a second
+         instance. -->
+    <key>StartInterval</key>
+    <integer>60</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/dev/null</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mmichon/Library/Application Support/xbar-metrics/watchdog_stderr</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
