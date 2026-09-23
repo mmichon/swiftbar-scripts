@@ -31,12 +31,12 @@ fi
 # Output
 # Using 'template=true' ensures the SF Symbol adapts to the menu bar's color/theme.
 if [ "$IS_ON" -eq 1 ]; then
-    echo " | sfimage=speaker.wave.3.fill template=true"
+    echo " | sfimage=waveform template=true"
     echo "---"
     echo "Status: Playing ($SOUND_NAME)"
     echo "Turn Off | bash=\"$0\" param1=off terminal=false refresh=true"
 else
-    echo " | sfimage=speaker.slash.fill template=true"
+    echo " | sfimage=waveform.slash template=true"
     echo "---"
     echo "Status: Off"
     echo "Turn On | bash=\"$0\" param1=on terminal=false refresh=true"
