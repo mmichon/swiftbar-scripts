@@ -553,14 +553,27 @@ if [ -n "$host_pid" ]; then
             # The watchdog logs its own restarts; label those rather than filing them
             # as unexplained deaths.
             death_kind="exit"
+            death_detail="no crash report (died within $(fmt_dur $((now - seen_tick))) of last tick)"
+            # A logout or reboot quits SwiftBar cleanly via loginwindow, and a new
+            # loginwindow starts with the next session. One younger than the old
+            # host's last tick means the session ended under it: not a death. Three
+            # of the first five "exit" rows (09-14, and both on 09-29) were exactly
+            # this, and each one lit up "SwiftBar died" in the menu. Filtered by owner
+            # so fast user switching picks our session's loginwindow; `ps -x` would be
+            # the obvious filter but does not list loginwindow at all.
+            lw_pid=$(ps -ax -o pid=,user=,comm= 2>/dev/null \
+                | awk -v u="$(id -un)" '$2 == u && $3 ~ /loginwindow$/ {print $1; exit}')
+            if [ -n "$lw_pid" ] && [ $((now - $(proc_uptime_secs "$lw_pid"))) -gt "$seen_tick" ]; then
+                death_kind="reboot"
+                death_detail="quit by logout/reboot"
+            fi
             awk -F'\t' -v a=$((seen_tick - 120)) -v b="$now" \
                 '$1 >= a && $1 <= b {found=1} END {exit !found}' \
                 "$HOST_RESTART_FILE" 2>/dev/null && death_kind="watchdog"
             death_life=0
             [ "$seen_launch" -gt 0 ] && [ "$seen_tick" -gt "$seen_launch" ] \
                 && death_life=$((seen_tick - seen_launch))
-            printf '%s\t%s\t%s\t%s\t%s\n' "$seen_tick" "$death_kind" \
-                "no crash report (died within $(fmt_dur $((now - seen_tick))) of last tick)" \
+            printf '%s\t%s\t%s\t%s\t%s\n' "$seen_tick" "$death_kind" "$death_detail" \
                 "$death_life" "?" >> "$DEATH_FILE"
         fi
     fi
@@ -572,9 +585,11 @@ fi
 # a harvested crash can predate an exit already logged -- so pick the max by epoch
 # rather than trusting the last line.
 if [ -s "$DEATH_FILE" ]; then
-    death_count=$(awk -F'\t' -v cut=$((now - DEATH_WINDOW)) '$1 >= cut' "$DEATH_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    # Reboot rows are kept as breadcrumbs but are not deaths: the host was asked to
+    # quit, and counting them made every restart of the Mac read as a crash.
+    death_count=$(awk -F'\t' -v cut=$((now - DEATH_WINDOW)) '$1 >= cut && $2 != "reboot"' "$DEATH_FILE" 2>/dev/null | wc -l | tr -d ' ')
     IFS=$'\t' read -r death_last death_last_detail < <(
-        awk -F'\t' '$1+0 > m {m = $1+0; d = $3} END {printf "%d\t%s\n", m, d}' "$DEATH_FILE" 2>/dev/null)
+        awk -F'\t' '$2 != "reboot" && $1+0 > m {m = $1+0; d = $3} END {printf "%d\t%s\n", m, d}' "$DEATH_FILE" 2>/dev/null)
     [[ "$death_count" =~ ^[0-9]+$ ]] || death_count=0
     [[ "$death_last" =~ ^[0-9]+$ ]] || death_last=0
 fi
@@ -717,7 +732,9 @@ if [ "$death_count" -gt 0 ]; then
     # Newest first, so the submenu reads as a history.
     while IFS=$'\t' read -r d_epoch d_kind d_detail d_life d_ver; do
         [[ "$d_epoch" =~ ^[0-9]+$ ]] || continue
-        echo "--$(fmt_dur $((now - d_epoch))) ago · ${d_kind} · up $(fmt_dur "${d_life:-0}") · v${d_ver:-?} | font='SF Mono' size=12 color=primary"
+        d_color=primary
+        [ "$d_kind" = "reboot" ] && d_color=secondary   # listed for context, not counted
+        echo "--$(fmt_dur $((now - d_epoch))) ago · ${d_kind} · up $(fmt_dur "${d_life:-0}") · v${d_ver:-?} | font='SF Mono' size=12 color=${d_color}"
     done < <(sort -t$'\t' -k1,1nr "$DEATH_FILE" 2>/dev/null | head -"$DEATH_LIST_MAX")
     echo "-----"
     # href, not bash=: the log lives under "Application Support", and a percent-
