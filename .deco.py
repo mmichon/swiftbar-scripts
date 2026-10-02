@@ -119,7 +119,30 @@ def backhaul(n):
     return max(lv) if lv and n.get("role") != "master" else None
 
 
-def query_deco(my_mac, hint):
+def identity(r):
+    """Every address the Deco might list this Mac under.
+
+    With Private Wi-Fi Address on, the Mac associates with a per-network
+    random MAC, not the hardware one CoreWLAN reports; ifconfig shows the one
+    actually in use. The IPv4 address is a last resort if both miss.
+    """
+    # CoreWLAN returns the placeholder 02:00:00:00:00:00 when macOS withholds
+    # the address (no Location Services), so it cannot be the only key.
+    macs, ip = {r["mac"]} - {"02-00-00-00-00-00", ""}, None
+    try:
+        out = subprocess.run(["/sbin/ifconfig", "en0"], capture_output=True, text=True, timeout=3).stdout
+        for line in out.splitlines():
+            parts = line.split()
+            if parts[:1] == ["ether"]:
+                macs.add(parts[1].upper().replace(":", "-"))
+            elif parts[:1] == ["inet"]:
+                ip = parts[1]
+    except Exception:
+        pass
+    return macs, ip
+
+
+def query_deco(me_ids, hint):
     """Return (nodes, current_node_mac, deco_band) from the controller."""
     from tplinkrouterc6u.client.deco import TPLinkDecoClient
     pw = password()
@@ -159,7 +182,9 @@ def query_deco(my_mac, hint):
                 if retry:
                     failed.remove(n)
                 n["clients"] = len(cl)
-                me = next((x for x in cl if x.get("mac") == my_mac), None)
+                macs, ip = me_ids
+                me = next((x for x in cl if x.get("mac") in macs), None) \
+                    or next((x for x in cl if ip and x.get("ip") == ip), None)
                 if me:
                     return nodes, n["mac"], me.get("connection_type", "")
         if failed:
@@ -228,7 +253,7 @@ def main():
     due = stale or roamed(r, s.get("fp"))
     if force or (due and not s.get("auth_failed")):
         try:
-            nodes, cur, dband = query_deco(r["mac"], s.get("current"))
+            nodes, cur, dband = query_deco(identity(r), s.get("current"))
             s = {"nodes": nodes, "current": cur, "deco_band": dband, "checked": time.time(),
                  "fp": {k: r[k] for k in ("band", "channel", "rssi")}}
             save_state(s)
@@ -267,6 +292,8 @@ def main():
     print("---")
 
     print(f"Connected to: {name}" + (f" ({cur['model']}, {cur['ip']})" if cur else ""))
+    if nodes and not cur and not s.get("error"):
+        print("This Mac is not in any Deco's client list | color=#e67e22")
     print(f"Band: {r['band']} GHz · ch {r['channel']} · {r['width']} MHz")
     snr = r["rssi"] - r["noise"]
     print(f"Signal: {r['rssi']} dBm · SNR {snr} dB")
