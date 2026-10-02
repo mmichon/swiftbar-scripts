@@ -138,17 +138,28 @@ def query_deco(my_mac, hint):
             "backhaul": backhaul(n),
         } for n in raw]
         # Ask the last known node first: almost every refresh ends after one call.
+        # A node that does not answer is skipped so it cannot hide the answer
+        # from the others, then retried once at the end: satellites sometimes
+        # time out a request and answer the next one fine.
         order = sorted(nodes, key=lambda n: n["mac"] != hint)
-        for n in order:
-            try:
-                cl = c.request("admin/client?form=client_list", json.dumps(
-                    {"operation": "read", "params": {"device_mac": n["mac"]}})).get("client_list", [])
-            except Exception:
-                continue  # one slow node should not hide the answer from the others
-            n["clients"] = len(cl)
-            me = next((x for x in cl if x.get("mac") == my_mac), None)
-            if me:
-                return nodes, n["mac"], me.get("connection_type", "")
+        failed = []
+        for retry in (False, True):
+            for n in (list(failed) if retry else order):
+                try:
+                    cl = c.request("admin/client?form=client_list", json.dumps(
+                        {"operation": "read", "params": {"device_mac": n["mac"]}})).get("client_list", [])
+                except Exception:
+                    if not retry:
+                        failed.append(n)
+                    continue
+                if retry:
+                    failed.remove(n)
+                n["clients"] = len(cl)
+                me = next((x for x in cl if x.get("mac") == my_mac), None)
+                if me:
+                    return nodes, n["mac"], me.get("connection_type", "")
+        if failed:
+            raise RuntimeError(f"not found; no answer from {', '.join(n['name'] for n in failed)}")
         return nodes, None, ""
     finally:
         try:

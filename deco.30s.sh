@@ -8,7 +8,19 @@
 
 # All the work is in .deco.py (dotfile, so SwiftBar does not run it as a
 # plugin). uv resolves its inline dependencies into a cached env on first run.
-UV=/opt/homebrew/bin/uv
+# SwiftBar runs plugins with a minimal PATH, so look where uv's installers put
+# it: Homebrew (Apple silicon, Intel), the standalone installer, cargo.
+UV=""
+for c in /opt/homebrew/bin/uv /usr/local/bin/uv "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv"; do
+    [ -x "$c" ] && { UV="$c"; break; }
+done
+[ -n "$UV" ] || UV=$(command -v uv)
+if [ -z "$UV" ]; then
+    echo "Deco ? | sfimage=wifi.exclamationmark template=true"
+    echo "---"
+    echo "uv not found (install: brew install uv)"
+    exit 0
+fi
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 HELPER="$(dirname "$SELF")/.deco.py"
 export DECO_PLUGIN="$SELF"

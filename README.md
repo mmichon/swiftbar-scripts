@@ -69,7 +69,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 
 ### 7. Deco Node (`deco.30s.sh` + `.deco.py`)
 - **Description**: Shows which TP-Link Deco mesh node this Mac is on as an icon only — `cable.connector` for Main (the wired gateway), `arrow.up` for Upstairs, `arrow.down` for Downstairs, `wifi` if unknown — tinted orange on weak signal (< −70 dBm) or a jittery gateway ping.
-- **Dependencies**: `uv` at `/opt/homebrew/bin/uv` (resolves `tplinkrouterc6u` + `pyobjc-framework-CoreWLAN` from the helper's inline metadata on first run); Deco admin password in the login keychain of each Mac: `security add-generic-password -s deco -a admin -w`.
+- **Dependencies**: `uv` from Homebrew or the standalone installer (`~/.local/bin`); it resolves `tplinkrouterc6u` + `pyobjc-framework-CoreWLAN` from the helper's inline metadata on first run. Deco admin password in the login keychain of each Mac: `security add-generic-password -s deco -a admin -w`.
 - **Hardcoded for one home network** — edit these at the top of `.deco.py` (and `deco.30s.sh`) on any other network:
   - `HOST = "http://10.0.0.1"`: the Deco controller (main node), also the gateway ping target.
   - `NODE_ICONS`: maps Deco nicknames (as named in the Deco app: `Main`, `Upstairs`, `Downstairs`) to SF Symbols. Unlisted names fall back to `wifi`.
