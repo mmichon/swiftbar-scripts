@@ -29,6 +29,7 @@ Site-specific values (hardcoded for one home network; edit for another):
 import base64
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -218,14 +219,25 @@ def main():
     s = load_state()
     err = None
     stale = time.time() - s.get("checked", 0) > CACHE_TTL
-    if force or stale or roamed(r, s.get("fp")):
+    # After a rejected password, only a manual Refresh tries again: the Deco
+    # counts failed logins and locks the admin account (Home Assistant's
+    # included) once they run out, so the bad password must not be replayed.
+    due = stale or roamed(r, s.get("fp"))
+    if force or (due and not s.get("auth_failed")):
         try:
             nodes, cur, dband = query_deco(r["mac"], s.get("current"))
             s = {"nodes": nodes, "current": cur, "deco_band": dband, "checked": time.time(),
                  "fp": {k: r[k] for k in ("band", "channel", "rssi")}}
             save_state(s)
         except Exception as e:
-            err = str(e).splitlines()[0][:120] if str(e) else type(e).__name__
+            msg = str(e)
+            err = msg.splitlines()[0][:120] if msg else type(e).__name__
+            s["auth_failed"] = "Cannot authorize" in msg
+            if s["auth_failed"]:
+                left = re.search(r"attemptsAllowed'?\"?:\s*'?(\d+)", msg)
+                err = ("Deco rejected the password in keychain item 'deco'"
+                       + (f" ({left.group(1)} attempts left)" if left else "")
+                       + "; fix it, then Refresh now")
             # Keep showing the last answer, but do not hammer a broken controller
             # every 30s: count the failure as a check.
             s["checked"] = time.time()
@@ -244,7 +256,9 @@ def main():
     jittery = ping and ping.get("avg") is not None and (ping["sd"] > 20 or ping["loss"] > 0)
     # Icon only: the node's role, tinted orange when the link is bad
     # (weak signal or a jittery gateway) and theme-adaptive otherwise.
-    icon = NODE_ICONS.get(name, "wifi")
+    # An unknown node gets a warning symbol, not plain "wifi": that one is
+    # indistinguishable from macOS's own Wi-Fi menu extra.
+    icon = NODE_ICONS.get(name, "wifi.exclamationmark")
     tint = " sfcolor=#e67e22" if weak or jittery else " template=true"
     print(f" | sfimage={icon}{tint}")
     print("---")
