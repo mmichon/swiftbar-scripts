@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["tplinkrouterc6u", "pyobjc-framework-CoreWLAN"]
+# dependencies = ["tplinkrouterc6u==5.35.1", "pyobjc-framework-CoreWLAN"]
 # ///
 """Helper for deco.30s.sh: which TP-Link Deco node is this Mac associated with?
 
@@ -128,7 +128,10 @@ def query_deco(my_mac, hint):
     c = TPLinkDecoClient(HOST, pw, timeout=REQ_TIMEOUT)
     c.authorize()
     try:
-        raw = c._fetch_devices()
+        # Plain request() rather than the client's private helpers, which come
+        # and go between library releases.
+        raw = c.request("admin/device?form=device_list",
+                        json.dumps({"operation": "read"})).get("device_list", [])
         nodes = [{
             "mac": n["mac"],
             "name": b64name(n),
