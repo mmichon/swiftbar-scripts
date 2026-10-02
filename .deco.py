@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["tplinkrouterc6u==5.35.1", "pyobjc-framework-CoreWLAN"]
+# dependencies = ["tplinkrouterc6u", "pyobjc-framework-CoreWLAN"]
 # ///
 """Helper for deco.30s.sh: which TP-Link Deco node is this Mac associated with?
 
