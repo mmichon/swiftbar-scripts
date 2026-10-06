@@ -37,6 +37,7 @@ import time
 
 HOST = "http://10.0.0.1"
 CACHE_TTL = 300          # seconds before the node answer is re-asked
+MISS_RETRY = 60          # sooner when no node listed this Mac (just roamed)
 RSSI_JUMP = 12           # dB change treated as a probable roam
 REQ_TIMEOUT = 6          # per HTTP request to the Deco
 HARD_DEADLINE = 25       # whole helper, so a wedged Deco can never pile up runs
@@ -126,9 +127,10 @@ def identity(r):
     random MAC, not the hardware one CoreWLAN reports; ifconfig shows the one
     actually in use. The IPv4 address is a last resort if both miss.
     """
-    # CoreWLAN returns the placeholder 02:00:00:00:00:00 when macOS withholds
-    # the address (no Location Services), so it cannot be the only key.
-    macs, ip = {r["mac"]} - {"02-00-00-00-00-00", ""}, None
+    # CoreWLAN, and sometimes ifconfig too, returns the placeholder
+    # 02:00:00:00:00:00 when macOS withholds the address, so neither can be
+    # the only key.
+    macs, ip = {r["mac"]}, None
     try:
         out = subprocess.run(["/sbin/ifconfig", "en0"], capture_output=True, text=True, timeout=3).stdout
         for line in out.splitlines():
@@ -139,7 +141,7 @@ def identity(r):
                 ip = parts[1]
     except Exception:
         pass
-    return macs, ip
+    return macs - {"02-00-00-00-00-00", ""}, ip
 
 
 def query_deco(me_ids, hint):
@@ -250,7 +252,11 @@ def main():
     # After a rejected password, only a manual Refresh tries again: the Deco
     # counts failed logins and locks the admin account (Home Assistant's
     # included) once they run out, so the bad password must not be replayed.
-    due = stale or roamed(r, s.get("fp"))
+    # Right after a roam the new node can take a while to list this Mac, so a
+    # miss is re-asked after MISS_RETRY instead of being cached for CACHE_TTL.
+    missed = s.get("nodes") and not s.get("current") and not s.get("error") \
+        and time.time() - s.get("checked", 0) > MISS_RETRY
+    due = stale or missed or roamed(r, s.get("fp"))
     if force or (due and not s.get("auth_failed")):
         try:
             nodes, cur, dband = query_deco(identity(r), s.get("current"))
