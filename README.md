@@ -22,13 +22,13 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 - **Features**:
   - Automatically dims the screen to 0 brightness when a remote session is established.
   - Prevents lock screen by simulating mouse movement every 5s via a compiled Swift helper (`.crd-jiggle`), resetting the HID idle timer.
-  - Disables hot corners that could trigger display sleep or screen lock; restores them on disable.
+  - Leaves hot corners alone; if the cursor is parked in a screen corner, the jiggler nudges it inward so it never re-triggers a hot corner.
   - Prevents system and display sleep via `pmset` as a safety net (AC power only).
   - **Leave On mode**: an optional persistent toggle that keeps the system and display awake even when no session is detected. Survives reboots/sleep-wake (flag stored in the plugin dir, not `/tmp`), keeps the local screen visible when idle (only dims while a session is actually active), and shows a filled-pin menu-bar icon.
   - **Battery/lid safeguards**: never keeps the machine awake on battery — unplugging (AC→battery) or running on battery tears down Leave On and session keep-awake, and a closed lid on battery with no session forces a full teardown so it can sleep in a bag. A closed lid on AC (clamshell with external display) is respected, so a manual "Enable CRD Mode" still sticks.
   - **Foreign sleep-blocker detection**: shows 😴 in the menu bar plus a `Sleep blocked by: <process>` status line when another process holds a `PreventSystemSleep`/`InternalPreventSleep` assertion. Those defeat lid-close (clamshell) sleep regardless of this plugin's `pmset` state, so the machine can stay awake in a bag even with CRD mode fully off — this makes the culprit visible at a glance instead of looking like a plugin bug. Where the holder names a beneficiary in its assertion details, that is reported too (`caffeinate→osxphotos`): `caffeinate` is a generic wrapper that tools invoke around themselves, so the bare name says nothing about what to stop or wait for — and because it runs as a child of the real job, it is not where you would look for it in Activity Monitor either.
   - Logs lock state (`locked=0/1`) on every tick and alerts on lock-during-active failures.
-  - Restores original brightness, sleep settings, and hot corners when the session ends.
+  - Restores original brightness and sleep settings when the session ends.
 
 ### 3. Display Resolution Switcher (`resolution.30s.sh`)
 - **Description**: Switches between display layout presets from the menu bar.

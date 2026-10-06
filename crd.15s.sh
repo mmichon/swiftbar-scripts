@@ -16,7 +16,6 @@ DEFAULT_DISPLAYSLEEP=5
 BRIGHTNESS_FILE="/tmp/.crd-original-brightness"
 FLAG_DIMMED="/tmp/.crd-brightness-dimmed"
 DEFAULT_BRIGHTNESS=0.8
-HOTCORNERS_FILE="/tmp/.crd-original-hotcorners"
 FLAG_WAS_LOCKED="/tmp/.crd-was-locked"
 FLAG_BLOCKED="/tmp/.crd-foreign-blocker"
 IDLE_SINCE_FILE="/tmp/.crd-idle-since"
@@ -161,13 +160,14 @@ JIGGLE_BIN="$(dirname "$SCRIPT")/.crd-jiggle"
 JIGGLE_SRC="$(dirname "$SCRIPT")/.crd-jiggle.swift"
 
 ensure_jiggle_binary() {
-    [[ -x "$JIGGLE_BIN" ]] && return
+    [[ -x "$JIGGLE_BIN" && ! "$JIGGLE_SRC" -nt "$JIGGLE_BIN" ]] && return
     swiftc -O "$JIGGLE_SRC" -o "$JIGGLE_BIN" 2>/dev/null
 }
 
 assert_user_active() {
     # Move mouse 1px and back to reset HID idle timer. The lock screen checks
-    # actual HID idle time, which caffeinate -u does NOT reset.
+    # actual HID idle time, which caffeinate -u does NOT reset. Hot corners are
+    # left untouched; the jiggler steps out of any screen corner instead.
     ensure_jiggle_binary
     "$JIGGLE_BIN" &>/dev/null
     # Fire again at +5s and +10s to cover the full 15s tick interval
@@ -180,42 +180,6 @@ is_screen_locked() {
 
 is_lid_closed() {
     ioreg -r -k AppleClamshellState -d 4 2>/dev/null | grep -q '"AppleClamshellState" = Yes'
-}
-
-# Hot corner values that can trigger lock: 5=Screen Saver, 10=Display Sleep, 13=Lock Screen
-DANGEROUS_CORNER_VALUES="5|10|13"
-
-save_and_disable_hot_corners() {
-    [[ -f "$HOTCORNERS_FILE" ]] && return
-    local corners=""
-    for pos in tl tr bl br; do
-        local val mod
-        val=$(defaults read com.apple.dock "wvous-${pos}-corner" 2>/dev/null || echo "0")
-        mod=$(defaults read com.apple.dock "wvous-${pos}-modifier" 2>/dev/null || echo "0")
-        corners+="${pos}:${val}:${mod} "
-        if [[ "$val" =~ ^($DANGEROUS_CORNER_VALUES)$ ]]; then
-            defaults write com.apple.dock "wvous-${pos}-corner" -int 0
-            defaults write com.apple.dock "wvous-${pos}-modifier" -int 0
-        fi
-    done
-    echo "$corners" > "$HOTCORNERS_FILE"
-    killall Dock 2>/dev/null
-}
-
-restore_hot_corners() {
-    [[ ! -f "$HOTCORNERS_FILE" ]] && return
-    local corners
-    corners=$(cat "$HOTCORNERS_FILE")
-    for entry in $corners; do
-        local pos val mod
-        pos=$(echo "$entry" | cut -d: -f1)
-        val=$(echo "$entry" | cut -d: -f2)
-        mod=$(echo "$entry" | cut -d: -f3)
-        defaults write com.apple.dock "wvous-${pos}-corner" -int "$val"
-        defaults write com.apple.dock "wvous-${pos}-modifier" -int "$mod"
-    done
-    rm -f "$HOTCORNERS_FILE"
-    killall Dock 2>/dev/null
 }
 
 dim_screen() {
@@ -257,7 +221,6 @@ enable_crd_mode() {
         sudo pmset -a displaysleep 0
     fi
 
-    save_and_disable_hot_corners
     assert_user_active
 
     touch "$FLAG_ACTIVE"
@@ -299,7 +262,6 @@ disable_crd_mode() {
     fi
     rm -f "$DISPLAYSLEEP_FILE"
 
-    restore_hot_corners
     rm -f "$FLAG_ACTIVE" "$FLAG_AUTO" "$FLAG_WAS_LOCKED" "$IDLE_SINCE_FILE"
 }
 
@@ -400,7 +362,7 @@ fi
 # Power-transition safeguard: when the laptop is unplugged (AC -> battery), tear
 # down Leave On and any active CRD keep-awake so the battery doesn't drain. Even
 # though disablesleep is never set on battery, leave-on/session mode still kills
-# display sleep, disables hot corners, and jiggles the mouse — all battery drains.
+# display sleep and jiggles the mouse — all battery drains.
 # Tracked via a /tmp flag (survives sleep/wake; a missing flag on first run is
 # treated as the current state, so we only act on a real plugged->unplugged edge).
 POWER_STATE_FILE="/tmp/.crd-last-power-state"
@@ -516,10 +478,6 @@ if ! $MODE_ON && ! $CRD_ACTIVE; then
         sudo pmset -a displaysleep "${saved_ds:-$DEFAULT_DISPLAYSLEEP}"
         rm -f "$DISPLAYSLEEP_FILE"
     fi
-    if [[ -f "$HOTCORNERS_FILE" ]]; then
-        crd_log "WARN" "Stale hot corner overrides detected while idle — restoring"
-        restore_hot_corners
-    fi
     rm -f "$IDLE_SINCE_FILE"
 fi
 
@@ -607,9 +565,6 @@ if $MODE_ON; then
         echo "Screen lock: LOCKED | color=red bash=true terminal=false"
     else
         echo "Screen lock: suppressed | color=primary bash=true terminal=false"
-    fi
-    if [[ -f "$HOTCORNERS_FILE" ]]; then
-        echo "Hot corners: disabled | color=primary bash=true terminal=false"
     fi
 fi
 
