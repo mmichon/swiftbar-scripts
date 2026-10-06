@@ -78,7 +78,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 - **Features**:
   - macOS hides the BSSID from processes without Location Services, so the node comes from the Deco controller. Its global client list reports every client's `access_host` as `1`, so the helper asks each node for its own clients, last-known node first.
   - Deco logins are slow and single-session (they also bump Home Assistant's `tplink_router` poller), so the answer is cached and re-asked only on a probable roam (band/channel change or ≥12 dB RSSI jump), every 5 min, or on **Refresh now**. Band, channel, width, RSSI/SNR, and Tx rate come from CoreWLAN every tick for free.
-  - Dropdown lists every Deco with model, IP, 5 GHz backhaul level, and client count, plus a 5-ping gateway latency ± stddev to separate Wi-Fi jitter from WAN jitter.
+  - Dropdown lists every Deco with model, IP, backhaul level (the better of its 5 and 6 GHz links on tri-band nodes like the XE75), and client count, plus a 5-ping gateway latency ± stddev to separate Wi-Fi jitter from WAN jitter.
   - **Re-join Wi-Fi** (radio off/on) makes macOS re-pick the strongest node.
   - 2.4 GHz is flagged red, even when a Mac is pinned to 2.4 in the Deco app on purpose (Deco firmware tends to lock 5 GHz clients onto the farther Main node).
   - Jitter note: AWDL (AirDrop, Universal Control, Handoff, and even wired Sidecar) time-shares the single Wi-Fi radio and was measured adding 100 ms–3 s stalls; `sudo ifconfig awdl0 down` removes most of it, but Sidecar re-raises AWDL within seconds.
