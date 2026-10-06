@@ -278,16 +278,17 @@ def main():
     cur = next((n for n in nodes if n["mac"] == s.get("current")), None)
     name = cur["name"] if cur else "?"
 
-    # 2.4 GHz alone is not a fault: the home Mac is pinned to 2.4 in the Deco
-    # app, because on 5 GHz the firmware locks it to the farther Main node.
     weak = r["rssi"] < -70
     jittery = ping and ping.get("avg") is not None and (ping["sd"] > 20 or ping["loss"] > 0)
-    # Icon only: the node's role, tinted orange when the link is bad
-    # (weak signal or a jittery gateway) and theme-adaptive otherwise.
-    # An unknown node gets a warning symbol, not plain "wifi": that one is
-    # indistinguishable from macOS's own Wi-Fi menu extra.
+    no_gateway = ping is not None and ping.get("avg") is None
+    # Icon only: the node's role, tinted red on 2.4 GHz or any other problem
+    # (weak signal, jittery or silent gateway, unknown node, failed query) and
+    # theme-adaptive otherwise. An unknown node gets a warning symbol, not
+    # plain "wifi": that one is indistinguishable from macOS's own Wi-Fi menu extra.
+    bad = (r["band"] == "2.4" or weak or jittery or no_gateway
+           or cur is None or bool(s.get("error")))
     icon = NODE_ICONS.get(name, "wifi.exclamationmark")
-    tint = " sfcolor=#e67e22" if weak or jittery else " template=true"
+    tint = " sfcolor=#ff3b30" if bad else " template=true"
     print(f" | sfimage={icon}{tint}")
     print("---")
 

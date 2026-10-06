@@ -68,11 +68,11 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - Refreshes every second for near-live tracking as you switch spaces.
 
 ### 7. Deco Node (`deco.30s.sh` + `.deco.py`)
-- **Description**: Shows which TP-Link Deco mesh node this Mac is on as an icon only — `cable.connector` for Main (the wired gateway), `arrow.up` for Upstairs, `arrow.down` for Downstairs, `wifi` if unknown — tinted orange on weak signal (< −70 dBm) or a jittery gateway ping.
+- **Description**: Shows which TP-Link Deco mesh node this Mac is on as an icon only — `cable.connector` for Main (the wired gateway), `arrow.up` for Upstairs, `arrow.down` for Downstairs, `wifi.exclamationmark` if unknown — tinted red when on 2.4 GHz or on any other issue (weak signal < −70 dBm, jittery or unreachable gateway, unknown node, failed Deco query), default otherwise (5/6 GHz and healthy).
 - **Dependencies**: `uv` from Homebrew or the standalone installer (`~/.local/bin`); it resolves `tplinkrouterc6u` + `pyobjc-framework-CoreWLAN` from the helper's inline metadata on first run. Deco admin password in the login keychain of each Mac: `security add-generic-password -s deco -a admin -w`.
 - **Hardcoded for one home network** — edit these at the top of `.deco.py` (and `deco.30s.sh`) on any other network:
   - `HOST = "http://10.0.0.1"`: the Deco controller (main node), also the gateway ping target.
-  - `NODE_ICONS`: maps Deco nicknames (as named in the Deco app: `Main`, `Upstairs`, `Downstairs`) to SF Symbols. Unlisted names fall back to `wifi`.
+  - `NODE_ICONS`: maps Deco nicknames (as named in the Deco app: `Main`, `Upstairs`, `Downstairs`) to SF Symbols. Unlisted names fall back to `wifi.exclamationmark`.
   - Keychain item: service `deco`, account `admin`.
   - `en0`: the Wi-Fi interface power-cycled by **Re-join Wi-Fi** in `deco.30s.sh`.
 - **Features**:
@@ -80,7 +80,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - Deco logins are slow and single-session (they also bump Home Assistant's `tplink_router` poller), so the answer is cached and re-asked only on a probable roam (band/channel change or ≥12 dB RSSI jump), every 5 min, or on **Refresh now**. Band, channel, width, RSSI/SNR, and Tx rate come from CoreWLAN every tick for free.
   - Dropdown lists every Deco with model, IP, 5 GHz backhaul level, and client count, plus a 5-ping gateway latency ± stddev to separate Wi-Fi jitter from WAN jitter.
   - **Re-join Wi-Fi** (radio off/on) makes macOS re-pick the strongest node.
-  - 2.4 GHz is deliberately not flagged: Deco firmware tends to lock 5 GHz clients onto the farther Main node, so a Mac may be pinned to 2.4 in the Deco app on purpose.
+  - 2.4 GHz is flagged red, even when a Mac is pinned to 2.4 in the Deco app on purpose (Deco firmware tends to lock 5 GHz clients onto the farther Main node).
   - Jitter note: AWDL (AirDrop, Universal Control, Handoff, and even wired Sidecar) time-shares the single Wi-Fi radio and was measured adding 100 ms–3 s stalls; `sudo ifconfig awdl0 down` removes most of it, but Sidecar re-raises AWDL within seconds.
   - Same single-instance lock as `bgs.5s.sh`; a failed query keeps the last answer and shows the error.
 
