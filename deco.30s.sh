@@ -69,8 +69,8 @@ trap 'exit 143' INT TERM
 if "$UV" run --quiet --script "$HELPER" > "$LAST_FILE.tmp" 2> "$CACHE_DIR/stderr.log" && [ -s "$LAST_FILE.tmp" ]; then
     mv -f "$LAST_FILE.tmp" "$LAST_FILE"
     cat "$LAST_FILE"
-elif [ -s "$LAST_FILE" ]; then
-    # Helper died (deadline, uv hiccup): keep the last answer rather than blank.
+elif [ -s "$LAST_FILE" ] && [ "$(( $(date +%s) - $(stat -f %m "$LAST_FILE" 2>/dev/null || echo 0) ))" -lt 180 ]; then
+    # Helper died (deadline, brief hiccup): keep recent answer rather than blank.
     cat "$LAST_FILE"
 else
     echo "Deco ? | sfimage=wifi.exclamationmark template=true"
