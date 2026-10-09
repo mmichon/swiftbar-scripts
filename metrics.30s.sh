@@ -96,6 +96,9 @@ if [ "$1" = "kill" ]; then
     done
     # Redraw now rather than waiting out the tick. refresh=true on the menu item
     # fires too early (this script is still running), so trigger the host directly.
+    # Kill items must NOT also carry refresh=true: that run is still in `top -l 2`
+    # when this URL lands, and SwiftBar 2.1.2 re-enqueues the in-flight operation
+    # and aborts (NSOperationQueue __addOperations exception -- crash 2026-10-09).
     open -g "swiftbar://refreshplugin?name=$(basename "$0" | cut -d. -f1)" >/dev/null 2>&1
     exit 0
 fi
@@ -747,7 +750,7 @@ if [ -n "$hog_name" ]; then
     hog_when=$(fmt_dur "$hog_dur")
     hog_hdr="⚠ ${hog_name} — ${hog_cpu}% for ${hog_when}"
     [ -n "$hog_killed_ago" ] && hog_hdr="${hog_hdr} (killed $(fmt_dur "$hog_killed_ago") ago)"
-    hog_kill_attrs="bash=\"$SCRIPT_PATH\" param1=kill param2=$hog_pid param3=\"$hog_name\" terminal=false refresh=true"
+    hog_kill_attrs="bash=\"$SCRIPT_PATH\" param1=kill param2=$hog_pid param3=\"$hog_name\" terminal=false"
     echo -e "${RED}${hog_hdr}${P_ANSI} | ansi=true font='SF Mono' size=12 color=primary $hog_kill_attrs"
     echo "Kill ${hog_name} (PID ${hog_pid}) | size=12 color=primary $hog_kill_attrs"
     echo "Ignore for 1 hour | size=12 color=primary bash=\"$SCRIPT_PATH\" param1=ignore param2=\"$hog_name\" terminal=false refresh=true"
@@ -758,7 +761,7 @@ echo "${free_mem_gb}GB ${cpu_display} ${ping_str} | font='SF Mono' size=12 color
 echo "---"
 echo "Memory Free: ${free_mem_gb}GB | color=primary bash=true terminal=false"
 if [ -n "$top_mem_name" ]; then
-    top_mem_kill_attrs="bash=\"$SCRIPT_PATH\" param1=kill param2=$top_mem_pid param3=\"$top_mem_name\" terminal=false refresh=true"
+    top_mem_kill_attrs="bash=\"$SCRIPT_PATH\" param1=kill param2=$top_mem_pid param3=\"$top_mem_name\" terminal=false"
     echo "Top Memory: ${top_mem_name} (${top_mem_val}) | font='SF Mono' size=12 color=primary $top_mem_kill_attrs"
 fi
 if [ -n "$cpu_ansi" ]; then
@@ -795,7 +798,7 @@ while IFS= read -r row; do
     line="${row#*|}"
     name="${line%%:*}"
     line_num=$((line_num + 1))
-    kill_attrs="bash=\"$SCRIPT_PATH\" param1=kill param2=$pid param3=\"$name\" terminal=false refresh=true"
+    kill_attrs="bash=\"$SCRIPT_PATH\" param1=kill param2=$pid param3=\"$name\" terminal=false"
     if [ "$line_num" -eq 1 ] && [ "$throttle_level" -ge 2 ]; then
         proc_name=$(echo "$line" | sed 's/: [0-9.]*%$//')
         cpu_part=$(echo "$line" | grep -o '[0-9.]*%$')
