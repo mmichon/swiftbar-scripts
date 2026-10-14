@@ -263,7 +263,7 @@ def main():
     # State is left alone so the next run at home picks up where it left off.
     gw = default_gateway()
     if gw != HOST.split("//")[-1]:
-        print(" | sfimage=antenna.radiowaves.left.and.right.slash template=true")
+        print(" | sfimage=globe template=true")
         print("---")
         print("Not on the Deco network" + (f" (gateway {gw})" if gw else ""))
         print(f"Band: {r['band']} GHz · ch {r['channel']} · {r['width']} MHz")
