@@ -68,10 +68,10 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - Refreshes every second for near-live tracking as you switch spaces.
 
 ### 7. Deco Node (`deco.30s.sh` + `.deco.py`)
-- **Description**: Shows which TP-Link Deco mesh node this Mac is on as an icon only — `cable.connector` for Main (the wired gateway), `arrow.up` for Upstairs, `arrow.down` for Downstairs, `wifi.exclamationmark` if unknown — tinted red when on 2.4 GHz or on any other issue (weak signal < −70 dBm, jittery or unreachable gateway, unknown node, failed Deco query), default otherwise (5/6 GHz and healthy).
+- **Description**: Shows which TP-Link Deco mesh node this Mac is on as an icon only — `cable.connector` for Main (the wired gateway), `arrow.up` for Upstairs, `arrow.down` for Downstairs, `wifi.exclamationmark` if unknown, `globe` when away from home — tinted red when on 2.4 GHz or on any other issue (weak signal < −70 dBm, jittery or unreachable gateway, unknown node, failed Deco query), default otherwise (5/6 GHz and healthy).
 - **Dependencies**: `uv` from Homebrew or the standalone installer (`~/.local/bin`); it resolves `tplinkrouterc6u` + `pyobjc-framework-CoreWLAN` from the helper's inline metadata on first run. Deco admin password in the login keychain of each Mac: `security add-generic-password -s deco -a admin -w`.
 - **Hardcoded for one home network** — edit these at the top of `.deco.py` (and `deco.30s.sh`) on any other network:
-  - `HOST = "http://10.0.0.1"`: the Deco controller (main node), also the gateway ping target.
+  - `HOST = "http://10.0.0.1"`: the Deco controller (main node), also the gateway ping target and the default gateway that marks "at home".
   - `NODE_ICONS`: maps Deco nicknames (as named in the Deco app: `Main`, `Upstairs`, `Downstairs`) to SF Symbols. Unlisted names fall back to `wifi.exclamationmark`.
   - Keychain item: service `deco`, account `admin`.
   - `en0`: the Wi-Fi interface power-cycled by **Re-join Wi-Fi** in `deco.30s.sh`.
@@ -82,6 +82,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - **Re-join Wi-Fi** (radio off/on) makes macOS re-pick the strongest node.
   - 2.4 GHz is flagged red, even when a Mac is pinned to 2.4 in the Deco app on purpose (Deco firmware tends to lock 5 GHz clients onto the farther Main node).
   - Jitter note: AWDL (AirDrop, Universal Control, Handoff, and even wired Sidecar) time-shares the single Wi-Fi radio and was measured adding 100 ms–3 s stalls; `sudo ifconfig awdl0 down` removes most of it, but Sidecar re-raises AWDL within seconds.
+  - Away from home (default gateway isn't `HOST`), the Deco isn't queried: the icon is a neutral `globe` and the dropdown says "Not on the Deco network" with band and signal. The cached node is kept for the next run at home.
   - Same single-instance lock as `bgs.5s.sh`; a failed query keeps the last answer and shows the error.
 
 ## Host Watchdog (`.swiftbar-watchdog.sh`)
