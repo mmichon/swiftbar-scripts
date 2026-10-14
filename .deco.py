@@ -21,7 +21,8 @@ The admin password is read from the login keychain:
   security add-generic-password -s deco -a admin -w
 
 Site-specific values (hardcoded for one home network; edit for another):
-  HOST        controller address, http://10.0.0.1 (also the ping target)
+  HOST        controller address, http://10.0.0.1 (also the ping target, and
+              the default gateway that marks "at home")
   NODE_ICONS  Deco nicknames as set in the Deco app -> menu bar SF Symbol
   keychain    service "deco", account "admin"
   en0         Wi-Fi interface toggled by Re-join (deco.30s.sh)
@@ -88,6 +89,17 @@ def gateway_ping():
             lost = loss.split(",")[2].strip().split("%")[0] if loss else "0"
             return {"avg": float(avg), "max": float(mx), "sd": float(sd), "loss": float(lost)}
     return {"avg": None, "loss": 100.0}
+
+
+def default_gateway():
+    """IPv4 default gateway, or None. Used to tell home from any other network."""
+    try:
+        out = subprocess.run(["/sbin/route", "-n", "get", "default"],
+                             capture_output=True, text=True, timeout=3).stdout
+    except Exception:
+        return None
+    m = re.search(r"gateway:\s*(\S+)", out)
+    return m.group(1) if m else None
 
 
 def password():
@@ -244,6 +256,20 @@ def main():
         print(" | sfimage=wifi.exclamationmark template=true")
         print("---")
         print("Not associated with any network")
+        return
+
+    # Off the home network (hotel, plane) the cached node is meaningless and the
+    # controller is unreachable: say so instead of showing the last home answer.
+    # State is left alone so the next run at home picks up where it left off.
+    gw = default_gateway()
+    if gw != HOST.split("//")[-1]:
+        print(" | sfimage=antenna.radiowaves.left.and.right.slash template=true")
+        print("---")
+        print("Not on the Deco network" + (f" (gateway {gw})" if gw else ""))
+        print(f"Band: {r['band']} GHz · ch {r['channel']} · {r['width']} MHz")
+        print(f"Signal: {r['rssi']} dBm · SNR {r['rssi'] - r['noise']} dB")
+        print("---")
+        print(f"Refresh now | bash=\"{PLUGIN}\" param1=refresh terminal=false refresh=true")
         return
 
     s = load_state()
