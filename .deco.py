@@ -92,14 +92,17 @@ def gateway_ping():
 
 
 def default_gateway():
-    """IPv4 default gateway, or None. Used to tell home from any other network."""
+    """IPv4 router of en0 (Wi-Fi), or None. Used to tell home from any other network.
+
+    Asks en0 rather than the system default route: a VPN (e.g. a Tailscale exit
+    node) takes the default route via utun with no gateway, which looked like
+    being away from home."""
     try:
-        out = subprocess.run(["/sbin/route", "-n", "get", "default"],
+        out = subprocess.run(["/usr/sbin/ipconfig", "getoption", "en0", "router"],
                              capture_output=True, text=True, timeout=3).stdout
     except Exception:
         return None
-    m = re.search(r"gateway:\s*(\S+)", out)
-    return m.group(1) if m else None
+    return out.strip() or None
 
 
 def password():
@@ -317,13 +320,18 @@ def main():
     # (weak signal, jittery or silent gateway, unknown node, failed query) and
     # theme-adaptive otherwise. An unknown node gets a warning symbol, not
     # plain "wifi": that one is indistinguishable from macOS's own Wi-Fi menu extra.
+    # Any Deco reported down outranks which node this Mac is on: show a warning
+    # triangle instead of the node icon so a dead satellite is not missed.
+    down = [n["name"] for n in nodes if not n.get("online", True)]
     bad = (r["band"] == "2.4" or weak or jittery or no_gateway
-           or cur is None or bool(s.get("error")))
-    icon = NODE_ICONS.get(name, "wifi.exclamationmark")
+           or cur is None or bool(s.get("error")) or bool(down))
+    icon = "exclamationmark.triangle.fill" if down else NODE_ICONS.get(name, "wifi.exclamationmark")
     tint = " sfcolor=#ff3b30" if bad else " template=true"
     print(f" | sfimage={icon}{tint}")
     print("---")
 
+    if down:
+        print(f"Deco down: {', '.join(down)} | color=red")
     print(f"Connected to: {name}" + (f" ({cur['model']}, {cur['ip']})" if cur else ""))
     if nodes and not cur and not s.get("error"):
         print("This Mac is not in any Deco's client list | color=#e67e22")
