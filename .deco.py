@@ -22,7 +22,7 @@ The admin password is read from the login keychain:
 
 Site-specific values (hardcoded for one home network; edit for another):
   HOST        controller address, http://10.0.0.1 (also the ping target, and
-              the default gateway that marks "at home")
+              the en0 router that marks "at home")
   NODE_ICONS  Deco nicknames as set in the Deco app -> menu bar SF Symbol
   keychain    service "deco", account "admin"
   en0         Wi-Fi interface toggled by Re-join (deco.30s.sh)
@@ -103,6 +103,26 @@ def default_gateway():
     except Exception:
         return None
     return out.strip() or None
+
+
+def tailscale_up():
+    """True if a utun interface holds a Tailscale (100.64.0.0/10) address.
+
+    Read from ifconfig rather than the tailscale CLI, which needs the daemon to
+    answer and is not always on PATH for the App Store build."""
+    try:
+        out = subprocess.run(["/sbin/ifconfig"], capture_output=True, text=True, timeout=3).stdout
+    except Exception:
+        return False
+    iface = ""
+    for line in out.splitlines():
+        if line and not line[0].isspace():
+            iface = line.split(":")[0]
+            continue
+        m = re.match(r"\s+inet 100\.(\d+)\.", line)
+        if iface.startswith("utun") and m and 64 <= int(m.group(1)) <= 127:
+            return True
+    return False
 
 
 def password():
@@ -322,16 +342,21 @@ def main():
     # plain "wifi": that one is indistinguishable from macOS's own Wi-Fi menu extra.
     # Any Deco reported down outranks which node this Mac is on: show a warning
     # triangle instead of the node icon so a dead satellite is not missed.
+    # Tailscale left on at home gets the same triangle: it should be off here.
     down = [n["name"] for n in nodes if not n.get("online", True)]
+    vpn = tailscale_up()
     bad = (r["band"] == "2.4" or weak or jittery or no_gateway
-           or cur is None or bool(s.get("error")) or bool(down))
-    icon = "exclamationmark.triangle.fill" if down else NODE_ICONS.get(name, "wifi.exclamationmark")
+           or cur is None or bool(s.get("error")) or bool(down) or vpn)
+    icon = ("exclamationmark.triangle.fill" if down or vpn
+            else NODE_ICONS.get(name, "wifi.exclamationmark"))
     tint = " sfcolor=#ff3b30" if bad else " template=true"
     print(f" | sfimage={icon}{tint}")
     print("---")
 
     if down:
         print(f"Deco down: {', '.join(down)} | color=red")
+    if vpn:
+        print("Tailscale is on at home; turn it off | color=red")
     print(f"Connected to: {name}" + (f" ({cur['model']}, {cur['ip']})" if cur else ""))
     if nodes and not cur and not s.get("error"):
         print("This Mac is not in any Deco's client list | color=#e67e22")
