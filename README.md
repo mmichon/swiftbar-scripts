@@ -21,7 +21,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 - **Dependencies**: Passwordless sudo for `pmset` (see Installation).
 - **Features**:
   - Automatically dims the screen to 0 brightness when a remote session is established.
-  - Prevents lock screen by simulating mouse movement every 5s via a compiled Swift helper (`.crd-jiggle`), resetting the HID idle timer.
+  - Prevents lock screen by simulating mouse movement via a compiled Swift helper (`.crd-jiggle`), resetting the HID idle timer. It runs every 5s but only moves the mouse after 60s with no input, because the CRD host blocks remote input for a few seconds whenever it sees input it didn't inject.
   - Leaves hot corners alone; if the cursor is parked in a screen corner, the jiggler nudges it inward so it never re-triggers a hot corner.
   - Prevents system and display sleep via `pmset` as a safety net (AC power only).
   - **Leave On mode**: an optional persistent toggle that keeps the system and display awake even when no session is detected. Survives reboots/sleep-wake (flag stored in the plugin dir, not `/tmp`), keeps the local screen visible when idle (only dims while a session is actually active), and shows a filled-pin menu-bar icon.
@@ -29,6 +29,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
   - **Foreign sleep-blocker detection**: shows 😴 in the menu bar plus a `Sleep blocked by: <process>` status line when another process holds a `PreventSystemSleep`/`InternalPreventSleep` assertion. Those defeat lid-close (clamshell) sleep regardless of this plugin's `pmset` state, so the machine can stay awake in a bag even with CRD mode fully off — this makes the culprit visible at a glance instead of looking like a plugin bug. Where the holder names a beneficiary in its assertion details, that is reported too (`caffeinate→osxphotos`): `caffeinate` is a generic wrapper that tools invoke around themselves, so the bare name says nothing about what to stop or wait for — and because it runs as a child of the real job, it is not where you would look for it in Activity Monitor either.
   - Logs lock state (`locked=0/1`) on every tick and alerts on lock-during-active failures.
   - Restores original brightness and sleep settings when the session ends.
+  - Returns the built-in display to its default resolution when the session ends, via a compiled Swift helper (`.crd-default-res`), since CRD leaves the desktop at the client's size. If the lid is closed at that moment, the reset waits until it opens.
 
 ### 3. Display Resolution Switcher (`resolution.30s.sh`)
 - **Description**: Switches between display layout presets from the menu bar.

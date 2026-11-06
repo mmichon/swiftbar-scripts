@@ -1,4 +1,15 @@
 import CoreGraphics
+
+// Only nudge when the machine is actually idle. The CRD host treats any input it
+// didn't inject as someone at the keyboard and blocks remote input for a few
+// seconds, so jiggling during an active session froze the remote mouse/keys
+// every 5s. Real use (local or remote) keeps HID idle low, so the lock-screen
+// timer only needs help once nothing has happened for a while.
+let minIdleSecs: Double = 60
+let idle = CGEventSource.secondsSinceLastEventType(.hidSystemState,
+                                                   eventType: CGEventType(rawValue: ~0)!)
+if idle < minIdleSecs { exit(0) }
+
 let pos = CGEvent(source: nil)?.location ?? CGPoint.zero
 
 func post(_ p: CGPoint) {

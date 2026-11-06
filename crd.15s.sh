@@ -19,6 +19,7 @@ DEFAULT_BRIGHTNESS=0.8
 FLAG_WAS_LOCKED="/tmp/.crd-was-locked"
 FLAG_BLOCKED="/tmp/.crd-foreign-blocker"
 IDLE_SINCE_FILE="/tmp/.crd-idle-since"
+FLAG_RESET_RES="/tmp/.crd-reset-resolution"
 LOG_FILE="$HOME/Library/Logs/crd-plugin.log"
 LOG_MAX_LINES=2000
 
@@ -172,6 +173,27 @@ assert_user_active() {
     "$JIGGLE_BIN" &>/dev/null
     # Fire again at +5s and +10s to cover the full 15s tick interval
     ("$JIGGLE_BIN" &>/dev/null; sleep 5; "$JIGGLE_BIN" &>/dev/null; sleep 5; "$JIGGLE_BIN" &>/dev/null) &
+}
+
+RES_BIN="$(dirname "$SCRIPT")/.crd-default-res"
+RES_SRC="$(dirname "$SCRIPT")/.crd-default-res.swift"
+
+reset_display_resolution() {
+    # CRD resizes the desktop to fit the client and doesn't put it back on
+    # disconnect. Clears the pending flag unless the built-in display is offline
+    # (lid closed, exit 2): then it stays set and this retries each tick, so the
+    # reset lands when the lid opens.
+    local out rc
+    if [[ ! -x "$RES_BIN" || "$RES_SRC" -nt "$RES_BIN" ]]; then
+        swiftc -O "$RES_SRC" -o "$RES_BIN" 2>/dev/null
+    fi
+    out=$("$RES_BIN" 2>&1); rc=$?
+    case $rc in
+        0) crd_log "INFO" "CRD session ended — display resolution: $out" ;;
+        2) return ;;
+        *) crd_log "WARN" "CRD session ended — display resolution not reset: ${out:-helper failed (rc=$rc)}" ;;
+    esac
+    rm -f "$FLAG_RESET_RES"
 }
 
 is_screen_locked() {
@@ -357,6 +379,15 @@ fi
 if ! $CRD_ACTIVE && ! $MODE_ON && [[ -f "$FLAG_DIMMED" ]]; then
     crd_log "INFO" "CRD session ended — restoring brightness"
     restore_brightness
+fi
+
+# Put the laptop display back at its default resolution once a session ends. This
+# tracks the session itself rather than CRD mode, so it also fires under Leave On
+# and after a manual disable, where AUTO-DISABLE never runs.
+if $CRD_ACTIVE; then
+    touch "$FLAG_RESET_RES"
+elif [[ -f "$FLAG_RESET_RES" ]]; then
+    reset_display_resolution
 fi
 
 # Power-transition safeguard: when the laptop is unplugged (AC -> battery), tear
