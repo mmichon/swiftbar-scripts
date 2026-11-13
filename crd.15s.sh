@@ -308,6 +308,15 @@ case "$1" in
     leaveon-on)
         MODE_ON=false; CRD_ACTIVE=false; AUTO_MANAGED=false
         is_crd_session_active && CRD_ACTIVE=true
+        # Leave On is AC-only: the battery guard would tear it down on the next
+        # tick (and, mid-session, set manual-off — killing CRD mode for the live
+        # session). Refuse up front instead of silently flapping.
+        if ! is_on_ac_power; then
+            log_detection_state "LEAVE-ON-REFUSED"
+            crd_log "WARN" "Leave On refused — on battery power"
+            osascript -e 'display notification "Plug in to use Leave On — it is disabled on battery." with title "CRD Mode"' &>/dev/null
+            exit 0
+        fi
         log_detection_state "LEAVE-ON"
         touch "$FLAG_LEAVE_ON"
         rm -f "$FLAG_MANUAL_OFF" "$FLAG_AUTO"
@@ -557,6 +566,9 @@ fi
 # Leave-on toggle: keep system/display awake even with no CRD session
 if $LEAVE_ON; then
     echo "✓ Leave On (always awake) | bash=\"$SCRIPT\" param1=leaveon-off terminal=false refresh=true color=primary"
+elif ! $ON_AC; then
+    # Battery guard would undo it immediately — show why instead of a dead toggle
+    echo "Leave On (always awake) — AC power only | color=gray"
 else
     echo "Leave On (always awake) | bash=\"$SCRIPT\" param1=leaveon-on terminal=false refresh=true color=primary"
 fi
