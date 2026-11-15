@@ -32,6 +32,7 @@ import json
 import os
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -105,24 +106,25 @@ def default_gateway():
     return out.strip() or None
 
 
-def tailscale_up():
-    """True if a utun interface holds a Tailscale (100.64.0.0/10) address.
+def tailscale_exit_node():
+    """True if the default route goes through a Tailscale utun, i.e. an exit node is on.
 
-    Read from ifconfig rather than the tailscale CLI, which needs the daemon to
-    answer and is not always on PATH for the App Store build."""
+    Tailscale merely being up is fine at home (Funnel needs it, and LAN peers
+    connect directly); an exit node is what costs: every connection hairpins
+    through the exit node over WireGuard. Read from route/ifconfig rather than
+    the tailscale CLI, which needs the daemon to answer and is not always on
+    PATH for the App Store build."""
     try:
-        out = subprocess.run(["/sbin/ifconfig"], capture_output=True, text=True, timeout=3).stdout
+        route = subprocess.run(["/sbin/route", "-n", "get", "default"],
+                               capture_output=True, text=True, timeout=3).stdout
+        m = re.search(r"^\s*interface:\s*(\S+)", route, re.M)
+        if not m or not m.group(1).startswith("utun"):
+            return False
+        out = subprocess.run(["/sbin/ifconfig", m.group(1)],
+                             capture_output=True, text=True, timeout=3).stdout
     except Exception:
         return False
-    iface = ""
-    for line in out.splitlines():
-        if line and not line[0].isspace():
-            iface = line.split(":")[0]
-            continue
-        m = re.match(r"\s+inet 100\.(\d+)\.", line)
-        if iface.startswith("utun") and m and 64 <= int(m.group(1)) <= 127:
-            return True
-    return False
+    return any(64 <= int(a) <= 127 for a in re.findall(r"^\s+inet 100\.(\d+)\.", out, re.M))
 
 
 def password():
@@ -342,9 +344,10 @@ def main():
     # plain "wifi": that one is indistinguishable from macOS's own Wi-Fi menu extra.
     # Any Deco reported down outranks which node this Mac is on: show a warning
     # triangle instead of the node icon so a dead satellite is not missed.
-    # Tailscale left on at home gets the same triangle: it should be off here.
+    # A Tailscale exit node left on at home gets the same triangle: it should be
+    # off here (Tailscale itself can stay up for Funnel).
     down = [n["name"] for n in nodes if not n.get("online", True)]
-    vpn = tailscale_up()
+    vpn = tailscale_exit_node()
     bad = (r["band"] == "2.4" or weak or jittery or no_gateway
            or cur is None or bool(s.get("error")) or bool(down) or vpn)
     icon = ("exclamationmark.triangle.fill" if down or vpn
@@ -356,7 +359,9 @@ def main():
     if down:
         print(f"Deco down: {', '.join(down)} | color=red")
     if vpn:
-        print("Tailscale is on at home; turn it off | color=red")
+        print("Tailscale exit node is on at home; turn it off | color=red")
+        ts = shutil.which("tailscale") or "/opt/homebrew/bin/tailscale"
+        print(f"--Turn off exit node | bash={ts} param1=set param2=--exit-node= terminal=false refresh=true")
     print(f"Connected to: {name}" + (f" ({cur['model']}, {cur['ip']})" if cur else ""))
     if nodes and not cur and not s.get("error"):
         print("This Mac is not in any Deco's client list | color=#e67e22")
