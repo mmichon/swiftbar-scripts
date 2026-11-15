@@ -40,6 +40,12 @@ if [ "$1" = "rejoin" ]; then
     /usr/sbin/networksetup -setairportpower en0 on
     sleep 8
     exec "$UV" run --quiet --script "$HELPER" --refresh > /dev/null 2>&1
+elif [ "$1" = "exitnode-pause" ]; then
+    touch "$CACHE_DIR/exitnode.paused"
+    exit 0
+elif [ "$1" = "exitnode-resume" ]; then
+    rm -f "$CACHE_DIR/exitnode.paused"
+    exec "$UV" run --quiet --script "$HELPER" --refresh > /dev/null 2>&1
 elif [ "$1" = "refresh" ]; then
     exec "$UV" run --quiet --script "$HELPER" --refresh > /dev/null 2>&1
 fi

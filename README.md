@@ -7,6 +7,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 ### 1. System Metrics (`metrics.30s.sh`)
 - **Description**: A combined monitor for Memory, CPU, and Network latency.
 - **Features**:
+  - **Automatic Tailscale exit node**: at home (the Deco at `HOST` answers and lists this Mac as a client) the exit node is turned off, so traffic doesn't hairpin through `hass` on the LAN; away (en0 router isn't `HOST`) it's set to `EXIT_NODE` with LAN access allowed, but only once `captive.apple.com` answers, so a hotel login page isn't blocked. Unsure (Deco query failing, Wi-Fi off) leaves it alone. Tailscale itself stays up, so Funnel keeps working. Uses the `tailscale` CLI (Homebrew or the one inside Tailscale.app); the dropdown shows the state with **Pause/Resume auto exit node**.
   - **Memory**: Displays free GB, badged red only on critical memory pressure (`pressure_level = 4`; `2`/warn is normal steady-state compression on macOS). The dropdown also names the top memory-consuming process (`Top Memory: Google Chrome Helper (Aperitif Renderer) (3401M)`), click-to-kill like the CPU list; `kernel_task`, `WindowServer`, and the root `Google Chrome` browser process are excluded (while individual Chrome helpers remain eligible).
   - **CPU**: Shows usage percentage, temperature (°F via `smctemp`), and thermal throttling status (`pmset` + `powermetrics` signals on Apple Silicon); usage is colored when throttling.
   - **Top Processes**: Lists the top CPU consumers; automatically surfaces the top non-kernel process in the menu bar if CPU usage exceeds 50%. Click any process in the dropdown to kill it — a confirmation dialog appears, then SIGKILL (`-9`) is sent, so even a process that traps or ignores SIGTERM dies immediately; the plugin then redraws right away instead of waiting out the tick.
@@ -74,6 +75,7 @@ A collection of useful SwiftBar/xbar plugins for macOS.
 - **Hardcoded for one home network** — edit these at the top of `.deco.py` (and `deco.30s.sh`) on any other network:
   - `HOST = "http://10.0.0.1"`: the Deco controller (main node), also the gateway ping target and the `en0` router that marks "at home" (asked of `en0`, not the default route, so a VPN such as a Tailscale exit node doesn't look like being away).
   - `NODE_ICONS`: maps Deco nicknames (as named in the Deco app: `Main`, `Upstairs`, `Downstairs`) to SF Symbols. Unlisted names fall back to `wifi.exclamationmark`.
+  - `EXIT_NODE = "hass"`: the Tailscale exit node switched on away from home (see below).
   - Keychain item: service `deco`, account `admin`.
   - `en0`: the Wi-Fi interface power-cycled by **Re-join Wi-Fi** in `deco.30s.sh`.
 - **Features**:

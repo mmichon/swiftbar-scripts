@@ -26,11 +26,14 @@ Site-specific values (hardcoded for one home network; edit for another):
   NODE_ICONS  Deco nicknames as set in the Deco app -> menu bar SF Symbol
   keychain    service "deco", account "admin"
   en0         Wi-Fi interface toggled by Re-join (deco.30s.sh)
+  EXIT_NODE   Tailscale exit node used away from home ("hass"); turned off at
+              home so traffic does not hairpin through it on the LAN
 """
 import base64
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -44,9 +47,11 @@ REQ_TIMEOUT = 6          # per HTTP request to the Deco
 HARD_DEADLINE = 25       # whole helper, so a wedged Deco can never pile up runs
 PING_COUNT = 5
 PLUGIN = os.environ.get("DECO_PLUGIN", "")
+EXIT_NODE = "hass"       # Tailscale exit node when away; none at home
 
 CACHE_DIR = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"xbar-deco.{os.getuid()}")
 STATE = os.path.join(CACHE_DIR, "state.json")
+EXIT_PAUSED = os.path.join(CACHE_DIR, "exitnode.paused")   # touched by deco.30s.sh
 
 BANDS = {1: "2.4", 2: "5", 3: "6"}
 WIDTHS = {1: 20, 2: 40, 3: 80, 4: 160}
@@ -103,6 +108,73 @@ def default_gateway():
     except Exception:
         return None
     return out.strip() or None
+
+
+def tailscale(*args):
+    """Run the tailscale CLI; returns stdout, or None if it is missing or fails.
+
+    SwiftBar's PATH is minimal, so look in the usual places, ending with the
+    CLI bundled inside the App Store / standalone app."""
+    for c in (shutil.which("tailscale"), "/opt/homebrew/bin/tailscale", "/usr/local/bin/tailscale",
+              "/Applications/Tailscale.app/Contents/MacOS/Tailscale"):
+        if c and os.path.exists(c):
+            try:
+                p = subprocess.run([c, *args], capture_output=True, text=True, timeout=6)
+            except Exception:
+                return None
+            return p.stdout if p.returncode == 0 else None
+    return None
+
+
+def internet_ok():
+    """True once past any captive portal. An exit node set before the hotel's
+    login page is answered blocks that page, so wait for this first."""
+    try:
+        out = subprocess.run(["/usr/bin/curl", "-s", "-m", "4", "http://captive.apple.com/hotspot-detect.html"],
+                             capture_output=True, text=True, timeout=6).stdout
+    except Exception:
+        return False
+    return "Success" in out
+
+
+def sync_exit_node(home):
+    """Exit node off at home, EXIT_NODE away. home is True, False or None
+    (unsure: leave it alone). Returns a menu line, or None to show nothing."""
+    if os.path.exists(EXIT_PAUSED):
+        return "Auto exit node: paused"
+    if home is None:
+        return None
+    raw = tailscale("debug", "prefs")
+    if raw is None:
+        return None                     # no CLI / daemon not answering: say nothing
+    try:
+        prefs = json.loads(raw)
+    except ValueError:
+        return None
+    on = bool(prefs.get("ExitNodeID") or prefs.get("ExitNodeIP") or prefs.get("AutoExitNode"))
+    if home:
+        if not on:
+            return "Exit node: off (home)"
+        ok = tailscale("set", "--exit-node=") is not None
+        return "Exit node: turned off (home)" if ok else "Exit node: failed to turn off | color=red"
+    if on:
+        return f"Exit node: {EXIT_NODE} (away)"
+    if not internet_ok():
+        return f"Exit node: waiting for internet before {EXIT_NODE} | color=#e67e22"
+    ok = tailscale("set", f"--exit-node={EXIT_NODE}", "--exit-node-allow-lan-access=true") is not None
+    return f"Exit node: switched to {EXIT_NODE} (away)" if ok else f"Exit node: failed to set {EXIT_NODE} | color=red"
+
+
+def exit_menu(line):
+    """Exit-node status plus pause/resume, appended near the end of the dropdown."""
+    if not line:
+        return
+    print("---")
+    print(line)
+    if os.path.exists(EXIT_PAUSED):
+        print(f"Resume auto exit node | bash=\"{PLUGIN}\" param1=exitnode-resume terminal=false refresh=true")
+    else:
+        print(f"Pause auto exit node | bash=\"{PLUGIN}\" param1=exitnode-pause terminal=false refresh=true")
 
 
 def password():
@@ -271,6 +343,7 @@ def main():
         print("Not on the Deco network" + (f" (gateway {gw})" if gw else ""))
         print(f"Band: {r['band']} GHz · ch {r['channel']} · {r['width']} MHz")
         print(f"Signal: {r['rssi']} dBm · SNR {r['rssi'] - r['noise']} dB")
+        exit_menu(sync_exit_node(False))
         print("---")
         print(f"Refresh now | bash=\"{PLUGIN}\" param1=refresh terminal=false refresh=true")
         return
@@ -359,6 +432,12 @@ def main():
                 bits.append(f"{n['clients']} clients")
             dot = "" if n["online"] else " | color=red"
             print(f"{mark}{n['name']}  —  {' · '.join(b for b in bits if b)}{dot}")
+
+    # Home only if a Deco at HOST answered and lists this Mac as its client, not
+    # just any network that also uses 10.0.0.1 (those fail the Deco login and
+    # leave the exit node alone). A failed query here is "unsure", not "away".
+    home = True if cur and not s.get("error") else None
+    exit_menu(sync_exit_node(home))
 
     print("---")
     if s.get("error"):
