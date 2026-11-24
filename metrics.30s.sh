@@ -128,6 +128,17 @@ else
 fi
 # Reset to SwiftBar's color=primary (adapts to light/dark) rather than hardcoded RGB
 P_ANSI="\033[0m"
+# Menu bar badges: high-contrast fg+bg so alerts stay readable over any
+# wallpaper regardless of Light/Dark mode (macOS menu bar tint follows wallpaper).
+BAR_RED="\033[38;5;231;48;5;160m"    # White on deep red
+BAR_YELLOW="\033[38;5;16;48;5;220m"  # Black on gold/amber
+
+bar_color() {
+    case "$1" in
+        "$RED")    printf '%s' "$BAR_RED" ;;
+        "$YELLOW") printf '%s' "$BAR_YELLOW" ;;
+    esac
+}
 
 # --- Memory ---
 # ... (rest of the logic stays same until output)
@@ -135,25 +146,27 @@ vm_stat_output=$(vm_stat)
 pages_free=$(echo "$vm_stat_output" | awk '/Pages free:/ {print $3}' | sed 's/\.//')
 pages_inactive=$(echo "$vm_stat_output" | awk '/Pages inactive:/ {print $3}' | sed 's/\.//')
 pages_speculative=$(echo "$vm_stat_output" | awk '/Pages speculative:/ {print $3}' | sed 's/\.//')
-page_size=4096
+page_size=$(echo "$vm_stat_output" | awk -F'page size of | bytes' 'NR==1 {print $2}')
+page_size=${page_size:-$(pagesize 2>/dev/null || echo 4096)}
 total_free_pages=$(echo "$pages_free + $pages_inactive + $pages_speculative" | bc)
 free_mem_gb=$(echo "scale=1; $total_free_pages * $page_size / (1024 * 1024 * 1024)" | bc)
 free_mem_gb=$(printf "%.1f" "$free_mem_gb")
 
+# macOS sits at pressure_level 2 (warn) under normal steady-state compression/swap
+# on 16GB RAM, so only flag 4 (critical).
 pressure_level=$(sysctl -n kern.memorystatus_vm_pressure_level)
 mem_ansi=""
-if [ "$pressure_level" -eq 4 ]; then 
+if [ "$pressure_level" -eq 4 ]; then
     mem_ansi=$RED
-elif [ "$pressure_level" -eq 2 ]; then 
-    mem_ansi=$YELLOW
 fi
 
 # Top memory-consuming process. Unlike CPU, RSS is a point-in-time value, so a
 # single sample is enough -- no delta needed. Scan 10 deep so there's a real
 # candidate left after excluding the ever-present, never-interesting names:
 # WindowServer is system chrome (no relation to killing it being useful), and
-# Chrome itself is normally the single biggest memory user on this machine but
-# never the one worth flagging -- its helpers are supposed to hold a lot of RAM.
+# the root "Google Chrome" browser process would take down every window/profile,
+# whereas individual "Google Chrome Helper (...)" processes (bloated tab
+# renderers, GPU process, extensions) are safe and high-value kill targets.
 MEM_EXCLUDE="kernel_task WindowServer"
 top_mem_output=$(top -l 1 -n 10 -o mem -stats pid,command,mem)
 top_mem_candidates=$(echo "$top_mem_output" | awk '
@@ -180,7 +193,7 @@ while IFS='|' read -r c_pid c_name c_mem; do
         [ "$real_name" = "$ex" ] && excluded=1 && break
     done
     case "$real_name" in
-        "Google Chrome"*|com.google.Chrome*) excluded=1 ;;
+        "Google Chrome"|com.google.Chrome*) excluded=1 ;;
     esac
     [ "$excluded" -eq 1 ] && continue
 
@@ -698,13 +711,13 @@ fi
 # Menu Bar: ANSI colors only when active, otherwise default text
 # This ensures non-colored text is system-default black/white
 BAR_MEM="${free_mem_gb}GB"
-[ -n "$mem_ansi" ] && BAR_MEM="${mem_ansi}${BAR_MEM}${P_ANSI}"
+[ -n "$mem_ansi" ] && BAR_MEM="$(bar_color "$mem_ansi")${BAR_MEM}${P_ANSI}"
 
 BAR_CPU="${cpu_display}"
-[ -n "$cpu_ansi" ] && BAR_CPU="${cpu_ansi}${BAR_CPU}${P_ANSI}"
+[ -n "$cpu_ansi" ] && BAR_CPU="$(bar_color "$cpu_ansi")${BAR_CPU}${P_ANSI}"
 
 BAR_PING="${ping_str}"
-[ -n "$ping_ansi" ] && BAR_PING="${ping_ansi}${BAR_PING}${P_ANSI}"
+[ -n "$ping_ansi" ] && BAR_PING="$(bar_color "$ping_ansi")${BAR_PING}${P_ANSI}"
 
 echo -e "${BAR_MEM} ${BAR_CPU} ${BAR_PING} | ansi=true font='SF Mono' size=12 color=primary"
 echo "---"
