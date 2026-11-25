@@ -5,7 +5,13 @@
 # <xbar.desc>Switch between display layout presets</xbar.desc>
 # <xbar.dependencies>displayplacer</xbar.dependencies>
 
-DISPLAYPLACER=/usr/local/bin/displayplacer
+# Homebrew lives in /opt/homebrew on Apple silicon, /usr/local on Intel; SwiftBar's
+# PATH is minimal, so look in both.
+DISPLAYPLACER=""
+for c in /opt/homebrew/bin/displayplacer /usr/local/bin/displayplacer; do
+    [ -x "$c" ] && { DISPLAYPLACER="$c"; break; }
+done
+DISPLAYPLACER="${DISPLAYPLACER:-$(command -v displayplacer)}"
 IPAD_ID="4756CB7D-982A-4E4D-AE97-3D532E60AABD"
 LOG=/tmp/resolution_plugin.log
 BUILTIN_CACHE=/tmp/resolution_builtin_id_cache

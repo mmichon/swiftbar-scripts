@@ -9,7 +9,7 @@
 # State for the CPU-hog warning. The plugin is otherwise stateless; these files
 # are what let it tell a brief spike apart from a process that has been hot for
 # minutes. Per-user dir, same convention as space.1s.sh.
-#   streak  - pid \t name \t tier \t first_seen \t peak_cpu   (rebuilt every tick)
+#   streak  - pid \t name \t first_hot \t first_hog \t peak_cpu   (rebuilt every tick)
 #   killed  - epoch \t name                                   (appended on kill)
 #   ignored - name \t until_epoch                             (per-process cooldown)
 #   host_streak   - pid \t first_seen \t peak_cpu             (SwiftBar spin clock)
@@ -87,7 +87,17 @@ HOST_RESTART_COOLDOWN=3600  # at most one auto-restart per hour
 # The kill is recorded so a repeat offender gets flagged much faster next time.
 if [ "$1" = "kill" ]; then
     pid="$2"; name="$3"
-    osascript -e "display dialog \"Kill ${name} (PID ${pid})?\" buttons {\"Cancel\",\"Kill\"} default button \"Cancel\" with icon caution" >/dev/null 2>&1 || exit 0
+    # The menu can sit for up to a tick and PIDs get recycled, so make sure the PID
+    # still belongs to the process that was clicked. top truncates names in the CPU
+    # list, so accept a prefix of the real name.
+    cur=$(ps -p "$pid" -o comm= 2>/dev/null); cur="${cur##*/}"
+    [ -n "$name" ] && [ -n "$cur" ] || exit 0
+    case "$cur" in "$name"*) ;; *) exit 0 ;; esac
+    # Pass the name as an argument, never spliced into the script text: any local
+    # process picks its own name, and a quote in it would otherwise run as AppleScript.
+    osascript -e 'on run argv' \
+        -e 'display dialog "Kill " & item 1 of argv & " (PID " & item 2 of argv & ")?" buttons {"Cancel","Kill"} default button "Cancel" with icon caution' \
+        -e 'end run' "$cur" "$pid" >/dev/null 2>&1 || exit 0
     printf '%s\t%s\n' "$(date +%s)" "$name" >> "$KILLED_FILE"
     kill -9 "$pid" 2>/dev/null              # SIGKILL -- always, so it dies predictably
     for _ in 1 2 3 4 5; do                  # let it finish dying before we redraw
@@ -167,7 +177,7 @@ fi
 # the root "Google Chrome" browser process would take down every window/profile,
 # whereas individual "Google Chrome Helper (...)" processes (bloated tab
 # renderers, GPU process, extensions) are safe and high-value kill targets.
-MEM_EXCLUDE="kernel_task WindowServer"
+MEM_EXCLUDE="kernel_task WindowServer SwiftBar xbar"
 top_mem_output=$(top -l 1 -n 10 -o mem -stats pid,command,mem)
 top_mem_candidates=$(echo "$top_mem_output" | awk '
     /^PID/ { block=1; next }
@@ -809,7 +819,7 @@ while IFS= read -r row; do
     [ -z "$row" ] && continue
     pid="${row%%|*}"
     line="${row#*|}"
-    name="${line%%:*}"
+    name="${line%: *}"
     line_num=$((line_num + 1))
     kill_attrs="bash=\"$SCRIPT_PATH\" param1=kill param2=$pid param3=\"$name\" terminal=false"
     if [ "$line_num" -eq 1 ] && [ "$throttle_level" -ge 2 ]; then
